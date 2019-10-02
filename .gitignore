@@ -1,2 +1,10 @@
 # The executable we generate
 cici
+# The AST we generate
+a.ast
+# The IR we generate
+a.pir
+# The assembly file we generate
+a.s
+# The program that we make from the assembly
+a.out
