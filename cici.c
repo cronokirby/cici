@@ -47,5 +47,15 @@ int main(int argc, char **argv) {
     char *in_filename = argv[1];
     char *out_filename = "a.s";
     if (argc > 2) out_filename = argv[2];
-    printf("Compiling %s into %s\n", in_filename, out_filename);
+    FILE *in = fopen(in_filename, "r");
+    if (in == NULL) panic("Failed to open the input file.");
+    size_t length;
+    if (fseek(in, 0, SEEK_END)) panic("Failed to seek to the end of the input file");
+    length = ftell(in);
+    if (fseek(in, 0, SEEK_SET)) panic("Failed to rewind input file");
+    char *in_data = malloc(length);
+    if (in_data == NULL) panic("Failed to allocate input buffer.");
+    if (!fread(in_data, sizeof(char), length, in)) panic("Failed to read into input buffer.");
+    fclose(in);
+    printf("%s\n", in_data);
 }
