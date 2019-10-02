@@ -8,3 +8,6 @@ a.pir
 a.s
 # The program that we make from the assembly
 a.out
+
+# editor stuff
+.vscode/
