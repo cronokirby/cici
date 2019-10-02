@@ -23,7 +23,9 @@ typedef enum TokenType {
     T_MAIN,
     T_RETURN,
     // Litteral
-    T_LITT_NUMBER
+    T_LITT_NUMBER,
+    // Special
+    T_EOF
 } TokenType;
 
 // Represents a type of litteral value we've lexed out
@@ -41,6 +43,45 @@ typedef struct Token {
     // Holds information about the litteral contained in this token.
     Litteral litt;
 } Token;
+
+typedef struct LexState {
+    // The underlying program (we don't own)
+    char const *program;
+    // The index we're currently at in the program
+    long index;
+} LexState;
+
+LexState lex_init(char const *program) {
+    LexState ret = {.program = program, .index = 0};
+    return ret;
+}
+
+Token lex_next(LexState *st) {
+    Token token;
+    token.litt.empty = true;
+    switch (st->program[st->index]) {
+    case '(':
+        st->index++;
+        token.type = T_LEFT_PARENS;
+        break;
+    case ')':
+        st->index++;
+        token.type = T_RIGHT_PARENS;
+        break;
+    case '{':
+        st->index++;
+        token.type = T_LEFT_BRACE;
+        break;
+    case '}':
+        st->index++;
+        token.type = T_RIGHT_BRACE;
+        break;
+    default:
+        token.type = T_EOF;
+        break;
+    }
+    return token;
+}
 
 int main(int argc, char **argv) {
     if (argc < 2) {
