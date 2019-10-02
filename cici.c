@@ -42,7 +42,10 @@ typedef struct Token {
     Litteral litt;
 } Token;
 
-int main() {
-    puts("a");
-    puts("Hello World");
+int main(int argc, char **argv) {
+    if (argc < 2) panic("Must have a file to compile as an argument.");
+    char *in_filename = argv[1];
+    char *out_filename = "a.s";
+    if (argc > 2) out_filename = argv[2];
+    printf("Compiling %s into %s\n", in_filename, out_filename);
 }
