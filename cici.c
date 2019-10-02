@@ -43,19 +43,32 @@ typedef struct Token {
 } Token;
 
 int main(int argc, char **argv) {
-    if (argc < 2) panic("Must have a file to compile as an argument.");
+    if (argc < 2) {
+        panic("Must have a file to compile as an argument.");
+    }
     char *in_filename = argv[1];
     char *out_filename = "a.s";
-    if (argc > 2) out_filename = argv[2];
+    if (argc > 2)
+        out_filename = argv[2];
     FILE *in = fopen(in_filename, "r");
-    if (in == NULL) panic("Failed to open the input file.");
+    if (in == NULL) {
+        panic("Failed to open the input file.");
+    }
     size_t length;
-    if (fseek(in, 0, SEEK_END)) panic("Failed to seek to the end of the input file");
+    if (fseek(in, 0, SEEK_END)) {
+        panic("Failed to seek to the end of the input file");
+    }
     length = ftell(in);
-    if (fseek(in, 0, SEEK_SET)) panic("Failed to rewind input file");
+    if (fseek(in, 0, SEEK_SET)) {
+        panic("Failed to rewind input file");
+    }
     char *in_data = malloc(length);
-    if (in_data == NULL) panic("Failed to allocate input buffer.");
-    if (!fread(in_data, sizeof(char), length, in)) panic("Failed to read into input buffer.");
+    if (in_data == NULL) {
+        panic("Failed to allocate input buffer.");
+    }
+    if (!fread(in_data, sizeof(char), length, in)) {
+        panic("Failed to read into input buffer.");
+    }
     fclose(in);
     printf("%s\n", in_data);
 }
