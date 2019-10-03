@@ -131,7 +131,6 @@ Token lex_next(LexState *st) {
                 st->index++;
             }
             buf[index] = 0;
-
             if (strcmp(buf, "main") == 0) {
                 token.type = T_MAIN;
             } else if (strcmp(buf, "return") == 0) {
