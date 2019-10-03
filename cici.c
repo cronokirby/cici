@@ -47,6 +47,42 @@ typedef struct Token {
     int litt;
 } Token;
 
+// Print out a representation of a token to a stream
+void token_print(Token t, FILE *fp) {
+    switch (t.type) {
+    case T_LEFT_PARENS:
+        fputs("(\n", fp);
+        break;
+    case T_RIGHT_PARENS:
+        fputs(")\n", fp);
+        break;
+    case T_LEFT_BRACE:
+        fputs("{\n", fp);
+        break;
+    case T_RIGHT_BRACE:
+        fputs("}\n", fp);
+        break;
+    case T_SEMICOLON:
+        fputs(";\n", fp);
+        break;
+    case T_INT:
+        fputs("int\n", fp);
+        break;
+    case T_MAIN:
+        fputs("main\n", fp);
+        break;
+    case T_RETURN:
+        fputs("return\n", fp);
+        break;
+    case T_LITT_NUMBER:
+        fprintf(fp, "Litt(%d)\n", t.litt);
+        break;
+    case T_EOF:
+        fputs("EOF\n", fp);
+        break;
+    }
+}
+
 typedef struct LexState {
     // The underlying program (we don't own)
     char const *program;
@@ -152,6 +188,6 @@ int main(int argc, char **argv) {
     fclose(in);
     LexState lexer = lex_init(in_data);
     for (Token t = lex_next(&lexer); t.type != T_EOF; t = lex_next(&lexer)) {
-        printf("%d\n", t.type);
+        token_print(t, stdout);
     }
 }
