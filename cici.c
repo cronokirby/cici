@@ -164,8 +164,9 @@ int main(int argc, char **argv) {
     }
     char *in_filename = argv[1];
     char *out_filename = "a.s";
-    if (argc > 2)
+    if (argc > 2) {
         out_filename = argv[2];
+    }
     FILE *in = fopen(in_filename, "r");
     if (in == NULL) {
         panic("Failed to open the input file.");
@@ -186,8 +187,17 @@ int main(int argc, char **argv) {
         panic("Failed to read into input buffer.");
     }
     fclose(in);
+    FILE *out;
+    if (strcmp(out_filename, "stdout") == 0) {
+        out = stdout;
+    } else {
+        out = fopen(out_filename, "w");
+        if (out == NULL) {
+            panic("Failed to open output file");
+        }
+    }
     LexState lexer = lex_init(in_data);
     for (Token t = lex_next(&lexer); t.type != T_EOF; t = lex_next(&lexer)) {
-        token_print(t, stdout);
+        token_print(t, out);
     }
 }

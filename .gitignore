@@ -1,5 +1,7 @@
 # The executable we generate
 cici
+# The lex tokens we generate
+a.lex
 # The AST we generate
 a.ast
 # The IR we generate
