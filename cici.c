@@ -231,6 +231,123 @@ struct AstNode {
     AstData data;
 };
 
+void ast_print_rec(AstNode *node, FILE *fp) {
+    if (node == NULL) {
+        return;
+    }
+    char *name;
+    switch (node->kind) {
+    case K_INT_MAIN:
+        name = "int-main";
+        break;
+    case K_EXPR_STATEMENT:
+        name = "expr-statement";
+        break;
+    case K_DECLARATION:
+        name = "expr-statement";
+        break;
+    case K_RETURN:
+        name = "return";
+        break;
+    case K_NO_INIT_DECLARATION:
+        name = "declare";
+        break;
+    case K_TOP_EXPR:
+        name = "top-expr";
+        break;
+    case K_LOGICAL_NOT:
+        name = "!";
+        break;
+    case K_BIT_NOT:
+        name = "~";
+        break;
+    case K_NEGATE:
+        name = "-";
+        break;
+    case K_INIT_DECLARATION:
+        name = "declare";
+        break;
+    case K_ASSIGN:
+        name = "=";
+        break;
+    case K_ADD:
+        name = "+";
+        break;
+    case K_SUB:
+        name = "-";
+        break;
+    case K_MUL:
+        name = "*";
+        break;
+    case K_DIV:
+        name = "/";
+        break;
+    case K_MOD:
+        name = "%";
+        break;
+    // We won't use the name here
+    case K_IDENTIFIER:
+    case K_NUMBER:
+        break;
+    }
+    int variant;
+    switch (node->kind) {
+    case K_EXPR_STATEMENT:
+    case K_RETURN:
+    case K_NO_INIT_DECLARATION:
+    case K_LOGICAL_NOT:
+    case K_BIT_NOT:
+    case K_NEGATE:
+        variant = 2;
+        break;
+    case K_INT_MAIN:
+    case K_DECLARATION:
+    case K_INIT_DECLARATION:
+    case K_TOP_EXPR:
+    case K_ASSIGN:
+    case K_ADD:
+    case K_SUB:
+    case K_MUL:
+    case K_DIV:
+    case K_MOD:
+        variant = 3;
+        break;
+    case K_IDENTIFIER:
+        variant = 1;
+        break;
+    case K_NUMBER:
+        variant = 0;
+        break;
+    }
+    switch (variant) {
+    case 0:
+        fprintf(fp, "%d", node->data.num);
+        break;
+    case 1:
+        fprintf(fp, "%s", node->data.string);
+        break;
+    case 2:
+        fprintf(fp, "(%s ", name);
+        ast_print_rec(node->data.next, fp);
+        fputc(')', fp);
+        break;
+    case 3:
+        fprintf(fp, "(%s", name);
+        AstChildren children = node->data.children;
+        for (unsigned int i = 0; i < children.count; ++i) {
+            fputc(' ', fp);
+            ast_print_rec(children.nodes + i, fp);
+        }
+        fputc(')', fp);
+        break;
+    }
+}
+
+void ast_print(AstNode *node, FILE* fp) {
+    ast_print_rec(node, fp);
+    fputs("\n", fp);
+}
+
 typedef struct ParseState {
     // Holds the state of the lexer
     LexState lex_st;
@@ -356,5 +473,6 @@ int main(int argc, char **argv) {
     }
     ParseState parser = parse_init(lexer);
     AstNode *root = parse_int_main(&parser);
+    ast_print(root, out);
     return 0;
 }
