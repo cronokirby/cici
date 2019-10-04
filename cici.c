@@ -36,6 +36,7 @@ typedef enum TokenType {
     // Litteral
     T_LITT_NUMBER,
     // Special
+    T_START,
     T_EOF
 } TokenType;
 
@@ -96,7 +97,7 @@ LexState lex_init(char const *program) {
 }
 
 Token lex_next(LexState *st) {
-    Token token;
+    Token token = {.type = T_EOF, .litt = 0};
     // We always return unless we continue
     for (;;) {
         char next = st->program[st->index];
@@ -159,6 +160,8 @@ Token lex_next(LexState *st) {
 
 // This enum identifies what kind of node we're dealing with in a tre
 typedef enum AstKind {
+    // Represents an int main function with a sequence of statements
+    K_INT_MAIN,
     // Represents an expression statement e.g. `foo();`
     K_EXPR_STATEMENT,
     // Represents a declaration statement e.g. `int x = 1;`
@@ -208,9 +211,9 @@ typedef union AstData {
     // A numeric litteral
     int num;
     // A string litteral or identifier
-    char* string;
+    char *string;
     // A direct next node
-    AstNode* next;
+    AstNode *next;
     // Multiple next nodes
     AstChildren children;
 } AstData;
@@ -222,6 +225,55 @@ typedef struct AstNode {
     // The payload for this node
     AstData data;
 } AstNode;
+
+typedef struct ParseState {
+    // Holds the state of the lexer
+    LexState lex_st;
+    // The next token
+    Token peek;
+    // This holds the previous token we parsed
+    Token prev;
+    // Whether or not the head has been initialized
+    bool has_peek;
+} ParseState;
+
+Token parse_peek(ParseState *st) {
+    if (!st->has_peek) {
+        st->prev = st->peek;
+        st->peek = lex_next(&st->lex_st);
+        st->has_peek = true;
+    }
+    return st->peek;
+}
+
+bool parse_at_end(ParseState *st) { return parse_peek(st).type == T_EOF; }
+
+void parse_advance(ParseState *st) { st->has_peek = false; }
+
+bool parse_check(ParseState *st, TokenType type) {
+    if (parse_at_end(st)) {
+        return false;
+    }
+    return parse_peek(st).type == type;
+}
+
+bool parse_match(ParseState *st, TokenType *types, unsigned int type_count) {
+    for (unsigned int i = 0; i < type_count; ++i) {
+        if (parse_check(st, types[i])) {
+            parse_advance(st);
+            return true;
+        }
+    }
+    return false;
+}
+
+void consume(ParseState *st, TokenType type, const char *msg) {
+    if (check(type)) {
+        parse_advance(st);
+        return;
+    }
+    panic(msg);
+}
 
 int main(int argc, char **argv) {
     if (argc < 2) {
