@@ -36,17 +36,26 @@ typedef enum TokenType {
     T_RETURN,
     // Litteral
     T_LITT_NUMBER,
+    T_IDENTIFIER,
     // Special
     T_START,
     T_EOF
 } TokenType;
 
+// Represents the type of data that can be contained in a token
+typedef union TokenData {
+    // A numeric litteral
+    int litt;
+    // String data for an identifier, or a string litteral
+    char *string;
+} TokenData;
+
 // Represents a token produced in the lexing phase.
 typedef struct Token {
     // Holds which type of token this is.
     TokenType type;
-    // Holds information about the litteral contained in this token.
-    int litt;
+    // Holds information about the data contained in this token
+    TokenData data;
 } Token;
 
 // Print out a representation of a token to a stream
@@ -80,7 +89,10 @@ void token_print(Token t, FILE *fp) {
         fputs("return\n", fp);
         break;
     case T_LITT_NUMBER:
-        fprintf(fp, "Litt(%d)\n", t.litt);
+        fprintf(fp, "Litt(%d)\n", t.data.litt);
+        break;
+    case T_IDENTIFIER:
+        fprintf(fp, "Identifier(%s)\n", t.data.string);
         break;
     case T_START:
         fputs("START\n", fp);
@@ -104,7 +116,7 @@ LexState lex_init(char const *program) {
 }
 
 Token lex_next(LexState *st) {
-    Token token = {.type = T_EOF, .litt = 0};
+    Token token = {.type = T_EOF, .data = {.litt = 0}};
     // We always return unless we continue
     for (;;) {
         char next = st->program[st->index];
@@ -149,8 +161,8 @@ Token lex_next(LexState *st) {
             } else if (strcmp(buf, "int") == 0) {
                 token.type = T_INT;
             } else {
-                printf("Unknown keyword %s\n", buf);
-                exit(-1);
+                token.type = T_IDENTIFIER;
+                token.data.string = buf;
             }
         } else if (IS_NUMERIC(next)) {
             int buf = 0;
@@ -159,7 +171,7 @@ Token lex_next(LexState *st) {
                 st->index++;
             }
             token.type = T_LITT_NUMBER;
-            token.litt = buf;
+            token.data.litt = buf;
         } else {
             st->index++;
             continue;
@@ -245,7 +257,7 @@ void ast_print_rec(AstNode *node, FILE *fp) {
         name = "expr-statement";
         break;
     case K_DECLARATION:
-        name = "expr-statement";
+        name = "declaration";
         break;
     case K_RETURN:
         name = "return";
@@ -353,7 +365,7 @@ typedef struct ParseState {
 } ParseState;
 
 ParseState parse_init(LexState lex_st) {
-    Token start = {.type = T_START, .litt = 0};
+    Token start = {.type = T_START, .data = {.litt = 0}};
     ParseState st = {
         .lex_st = lex_st, .peek = start, .prev = start, .has_peek = false};
     return st;
@@ -361,7 +373,6 @@ ParseState parse_init(LexState lex_st) {
 
 Token parse_peek(ParseState *st) {
     if (!st->has_peek) {
-        st->prev = st->peek;
         st->peek = lex_next(&st->lex_st);
         st->has_peek = true;
     }
@@ -370,7 +381,10 @@ Token parse_peek(ParseState *st) {
 
 bool parse_at_end(ParseState *st) { return parse_peek(st).type == T_EOF; }
 
-void parse_advance(ParseState *st) { st->has_peek = false; }
+void parse_advance(ParseState *st) {
+    st->has_peek = false;
+    st->prev = st->peek;
+}
 
 bool parse_check(ParseState *st, TokenType type) {
     if (parse_at_end(st)) {
@@ -398,12 +412,30 @@ void parse_consume(ParseState *st, TokenType type, const char *msg) {
     panic(msg);
 }
 
-AstNode *parse_top_expr(ParseState *st) {
-    return NULL;
+AstNode *parse_top_expr(ParseState *st) { return NULL; }
+
+AstNode *parse_declarator(ParseState *st) {
+    AstNode *node = malloc(sizeof(AstNode));
+    node->kind = K_IDENTIFIER;
+    node->count = 0;
+    int parens = 0;
+    while (parse_check(st, T_LEFT_PARENS)) {
+        parse_advance(st);
+        ++parens;
+    }
+    parse_consume(st, T_IDENTIFIER, "Declarator must contain identifier");
+    node->data.string = st->prev.data.string;
+    for (; parens > 0; --parens) {
+        parse_consume(st, T_RIGHT_PARENS,
+                      "Must have matching parens around identifier");
+    }
+    return node;
 }
 
 void parse_declaration(ParseState *st, AstNode *node) {
-
+    node->kind = K_NO_INIT_DECLARATION;
+    node->count = 1;
+    node->data.children = parse_declarator(st);
 }
 
 void *parse_statement(ParseState *st, AstNode *node) {
