@@ -411,7 +411,16 @@ AstNode *parse_int_main(ParseState *st) {
     parse_consume(st, T_LEFT_PARENS, "Expected `(` after function name");
     parse_consume(st, T_RIGHT_PARENS, "Expected `)` after `(`");
     parse_consume(st, T_LEFT_BRACE, "Expected `{` before function statements");
-    return NULL;
+    AstNode *node = malloc(sizeof(AstNode));
+    node->kind = K_INT_MAIN;
+    node->data.children.count = 2;
+    node->data.children.nodes = malloc(2 * sizeof(AstNode));
+    AstNode litt;
+    litt.kind = K_NUMBER;
+    litt.data.num = 20;
+    node->data.children.nodes[0] = litt;
+    node->data.children.nodes[1] = litt;
+    return node;
 }
 
 typedef enum CompileStage { STAGE_LEX, STAGE_PARSE } CompileStage;
