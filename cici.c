@@ -30,6 +30,14 @@ typedef enum TokenType {
     T_RIGHT_BRACE,
     T_SEMICOLON,
     T_COMMA,
+    T_EQUALS,
+    T_PLUS,
+    T_MINUS,
+    T_SLASH,
+    T_ASTERISK,
+    T_PERCENT,
+    T_EXCLAMATION,
+    T_TILDE,
     // Keywords
     T_INT,
     T_MAIN,
@@ -78,6 +86,30 @@ void token_print(Token t, FILE *fp) {
         break;
     case T_COMMA:
         fputs(",\n", fp);
+        break;
+    case T_EQUALS:
+        fputs("=\n", fp);
+        break;
+    case T_PLUS:
+        fputs("+\n", fp);
+        break;
+    case T_MINUS:
+        fputs("-\n", fp);
+        break;
+    case T_SLASH:
+        fputs("/\n", fp);
+        break;
+    case T_ASTERISK:
+        fputs("*\n", fp);
+        break;
+    case T_PERCENT:
+        fputs("%\n", fp);
+        break;
+    case T_EXCLAMATION:
+        fputs("!\n", fp);
+        break;
+    case T_TILDE:
+        fputs("~\n", fp);
         break;
     case T_INT:
         fputs("int\n", fp);
@@ -140,6 +172,30 @@ Token lex_next(LexState *st) {
         } else if (next == ',') {
             st->index++;
             token.type = T_COMMA;
+        } else if (next == '=') {
+            st->index++;
+            token.type = T_EQUALS;
+        } else if (next == '+') {
+            st->index++;
+            token.type = T_PLUS;
+        } else if (next == '-') {
+            st->index++;
+            token.type = T_MINUS;
+        } else if (next == '/') {
+            st->index++;
+            token.type = T_SLASH;
+        } else if (next == '*') {
+            st->index++;
+            token.type = T_ASTERISK;
+        } else if (next == '%') {
+            st->index++;
+            token.type = T_PERCENT;
+        } else if (next == '!') {
+            st->index++;
+            token.type = T_EXCLAMATION;
+        } else if (next == '~') {
+            st->index++;
+            token.type = T_TILDE;
         } else if (IS_ALPHA(next)) {
             size_t size = BASE_STRING_SIZE;
             char *buf = malloc(size);
@@ -412,7 +468,140 @@ void parse_consume(ParseState *st, TokenType type, const char *msg) {
     panic(msg);
 }
 
-AstNode *parse_top_expr(ParseState *st) { return NULL; }
+void parse_assignment_expr(ParseState *st, AstNode *node);
+
+void parse_primary(ParseState *st, AstNode *node) {
+    if (parse_check(st, T_LEFT_PARENS)) {
+        parse_advance(st);
+        parse_assignment_expr(st, node);
+        parse_consume(st, T_RIGHT_PARENS, "Expected matching `)`");
+    } else if (parse_check(st, T_LITT_NUMBER)) {
+        parse_advance(st);
+        node->kind = K_NUMBER;
+        node->count = 0;
+        node->data.num = st->prev.data.litt;
+    } else if (parse_check(st, T_IDENTIFIER)) {
+        parse_advance(st);
+        node->kind = K_IDENTIFIER;
+        node->count = 0;
+        node->data.string = st->prev.data.string;
+    } else {
+        printf("Error at index %ld:\n", st->lex_st.index);
+        puts("Unexpected Token:");
+        token_print(st->peek, stdout);
+        exit(-1);
+    }
+}
+
+void parse_unary(ParseState *st, AstNode *node) {
+    for (;;) {
+        if (parse_check(st, T_EXCLAMATION)) {
+            parse_advance(st);
+            node->kind = K_LOGICAL_NOT;
+            node->count = 1;
+            node->data.children = malloc(sizeof(AstNode));
+            node = node->data.children;
+        } else if (parse_check(st, T_TILDE)) {
+            parse_advance(st);
+            node->kind = K_BIT_NOT;
+            node->count = 1;
+            node->data.children = malloc(sizeof(AstNode));
+            node = node->data.children;
+        } else if (parse_check(st, T_MINUS)) {
+            parse_advance(st);
+            node->kind = K_NEGATE;
+            node->count = 1;
+            node->data.children = malloc(sizeof(AstNode));
+            node = node->data.children;
+        } else {
+            break;
+        }
+    }
+    parse_primary(st, node);
+}
+
+void parse_multiply(ParseState *st, AstNode *node) {
+    parse_unary(st, node);
+    TokenType operators[] = {T_ASTERISK, T_SLASH, T_PERCENT};
+    while (parse_match(st, operators, 2)) {
+        AstNode *children = malloc(2 * sizeof(AstNode));
+        children[0] = *node;
+        TokenType matched = st->prev.type;
+        if (matched == T_ASTERISK) {
+            node->kind = K_MUL;
+        } else if (matched == T_SLASH) {
+            node->kind = K_DIV;
+        } else {
+            node->kind = K_MOD;
+        }
+        node->count = 2;
+        parse_unary(st, children + 1);
+        node->data.children = children;
+    }
+}
+
+void parse_add(ParseState *st, AstNode *node) {
+    parse_multiply(st, node);
+    TokenType operators[] = {T_PLUS, T_MINUS};
+    while (parse_match(st, operators, 2)) {
+        AstNode *children = malloc(2 * sizeof(AstNode));
+        children[0] = *node;
+        TokenType matched = st->prev.type;
+        if (matched == T_PLUS) {
+            node->kind = K_ADD;
+        } else {
+            node->kind = K_SUB;
+        }
+        node->count = 2;
+        parse_multiply(st, children + 1);
+        node->data.children = children;
+    }
+}
+
+void parse_assignment_expr(ParseState *st, AstNode *node) {
+    ParseState rewind = *st;
+    if (parse_check(st, T_IDENTIFIER)) {
+        parse_advance(st);
+        // We need to rewind everything if the next token isn't =
+        if (parse_check(st, T_EQUALS)) {
+            char *identifier = st->prev.data.string;
+            parse_advance(st);
+            node->kind = K_ASSIGN;
+            node->count = 2;
+            AstNode *children = malloc(2 * sizeof(AstNode));
+            node->data.children = children;
+            children[0].kind = K_IDENTIFIER;
+            children[0].count = 0;
+            children[0].data.string = identifier;
+            parse_assignment_expr(st, children + 1);
+        } else {
+            *st = rewind;
+            parse_add(st, node);
+        }
+    } else {
+        parse_add(st, node);
+    }
+}
+
+AstNode *parse_top_expr(ParseState *st) {
+    AstNode *node = malloc(sizeof(AstNode));
+    node->kind = K_TOP_EXPR;
+    node->count = 1;
+    unsigned int allocated = BASE_CHILDREN_SIZE;
+    node->data.children = malloc(allocated * sizeof(AstNode));
+    parse_assignment_expr(st, node->data.children);
+    if (parse_check(st, T_COMMA)) {
+        parse_advance(st);
+        int offset = node->count++;
+        if (node->count > allocated) {
+            allocated <<= 1;
+            size_t size = allocated * sizeof(AstNode);
+            node->data.children = realloc(node->data.children, size);
+        }
+        parse_assignment_expr(st, node->data.children + offset);
+    }
+    return node;
+}
 
 AstNode *parse_declarator(ParseState *st) {
     AstNode *node = malloc(sizeof(AstNode));
@@ -433,9 +622,19 @@ AstNode *parse_declarator(ParseState *st) {
 }
 
 void parse_declaration(ParseState *st, AstNode *node) {
-    node->kind = K_NO_INIT_DECLARATION;
-    node->count = 1;
-    node->data.children = parse_declarator(st);
+    AstNode *declarator = parse_declarator(st);
+    if (parse_check(st, T_EQUALS)) {
+        parse_advance(st);
+        node->kind = K_INIT_DECLARATION;
+        node->count = 2;
+        node->data.children = malloc(2 * sizeof(AstNode));
+        node->data.children[0] = *declarator;
+        parse_assignment_expr(st, node->data.children + 1);
+    } else {
+        node->kind = K_NO_INIT_DECLARATION;
+        node->count = 1;
+        node->data.children = declarator;
+    }
 }
 
 void *parse_statement(ParseState *st, AstNode *node) {
