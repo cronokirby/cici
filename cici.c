@@ -157,6 +157,72 @@ Token lex_next(LexState *st) {
     }
 }
 
+// This enum identifies what kind of node we're dealing with in a tre
+typedef enum AstKind {
+    // Represents an expression statement e.g. `foo();`
+    K_EXPR_STATEMENT,
+    // Represents a declaration statement e.g. `int x = 1;`
+    K_DECLARATION,
+    // Represents a return statement e.g. `return 1;`
+    K_RETURN,
+    // Represents a declaration with initialization
+    K_INIT_DECLARATION,
+    // Represents a declaration without initialization
+    K_NO_INIT_DECLARATION,
+    // Represents a top level expression, which can be seperated by commas
+    K_TOP_EXPR,
+    // x = y
+    K_ASSIGN,
+    // a + b
+    K_ADD,
+    // a - b
+    K_SUB,
+    // a * b
+    K_MUL,
+    // a / b
+    K_DIV,
+    // a % b
+    K_MOD,
+    // !a
+    K_LOGICAL_NOT,
+    // ~a
+    K_BIT_NOT,
+    // -a
+    K_NEGATE,
+    // Represents an identifier.
+    K_IDENTIFIER,
+    // Represents a numeric litteral
+    K_NUMBER
+} AstKind;
+
+// Holds multiple children for a given node.
+typedef struct AstChildren {
+    // The number of nodes under us
+    unsigned int count;
+    // An array containing how many nodes we need
+    AstNode *nodes;
+} AstChildren;
+
+// Holds one of the possible
+typedef union AstData {
+    // A numeric litteral
+    int num;
+    // A string litteral or identifier
+    char* string;
+    // A direct next node
+    AstNode* next;
+    // Multiple next nodes
+    AstChildren children;
+} AstData;
+
+// The root syntax node type
+typedef struct AstNode {
+    // What kind of node this is
+    AstKind kind;
+    // The payload for this node
+    AstData data;
+} AstNode;
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         panic("Must have a file to compile as an argument.");
