@@ -242,6 +242,13 @@ typedef struct ParseState {
     bool has_peek;
 } ParseState;
 
+ParseState parse_init(LexState lex_st) {
+    Token start = {.type = T_START, .litt = 0};
+    ParseState st = {
+        .lex_st = lex_st, .peek = start, .prev = start, .has_peek = false};
+    return st;
+}
+
 Token parse_peek(ParseState *st) {
     if (!st->has_peek) {
         st->prev = st->peek;
@@ -272,13 +279,25 @@ bool parse_match(ParseState *st, TokenType *types, unsigned int type_count) {
     return false;
 }
 
-void consume(ParseState *st, TokenType type, const char *msg) {
+void parse_consume(ParseState *st, TokenType type, const char *msg) {
     if (parse_check(st, type)) {
         parse_advance(st);
         return;
     }
+    printf("Error at index %ld:\n", st->lex_st.index);
     panic(msg);
 }
+
+AstNode *parse_int_main(ParseState *st) {
+    parse_consume(st, T_INT, "Expected int token at start of program");
+    parse_consume(st, T_MAIN, "Expected `main` identifier");
+    parse_consume(st, T_LEFT_PARENS, "Expected `(` after function name");
+    parse_consume(st, T_RIGHT_PARENS, "Expected `)` after `(`");
+    parse_consume(st, T_LEFT_BRACE, "Expected `{` before function statements");
+    return NULL;
+}
+
+typedef enum CompileStage { STAGE_LEX, STAGE_PARSE } CompileStage;
 
 int main(int argc, char **argv) {
     if (argc < 2) {
@@ -288,6 +307,15 @@ int main(int argc, char **argv) {
     char *out_filename = "a.s";
     if (argc > 2) {
         out_filename = argv[2];
+    }
+    CompileStage stage = STAGE_PARSE;
+    if (argc > 3) {
+        char *stage_str = argv[3];
+        if (strcmp(stage_str, "lex") == 0) {
+            stage = STAGE_LEX;
+        } else if (strcmp(stage_str, "parse") == 0) {
+            stage = STAGE_PARSE;
+        }
     }
     FILE *in = fopen(in_filename, "r");
     if (in == NULL) {
@@ -319,7 +347,14 @@ int main(int argc, char **argv) {
         }
     }
     LexState lexer = lex_init(in_data);
-    for (Token t = lex_next(&lexer); t.type != T_EOF; t = lex_next(&lexer)) {
-        token_print(t, out);
+    if (stage == STAGE_LEX) {
+        for (Token t = lex_next(&lexer); t.type != T_EOF;
+             t = lex_next(&lexer)) {
+            token_print(t, out);
+        }
+        return 0;
     }
+    ParseState parser = parse_init(lexer);
+    AstNode *root = parse_int_main(&parser);
+    return 0;
 }
