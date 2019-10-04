@@ -203,30 +203,22 @@ typedef enum AstKind {
 
 typedef struct AstNode AstNode;
 
-// Holds multiple children for a given node.
-typedef struct AstChildren {
-    // The number of nodes under us
-    unsigned int count;
-    // An array containing how many nodes we need
-    AstNode *nodes;
-} AstChildren;
-
 // Holds one of the possible
 typedef union AstData {
     // A numeric litteral
     int num;
     // A string litteral or identifier
     char *string;
-    // A direct next node
-    AstNode *next;
-    // Multiple next nodes
-    AstChildren children;
+    // The nodes beneath us
+    AstNode *children;
 } AstData;
 
 // The root syntax node type
 struct AstNode {
     // What kind of node this is
     AstKind kind;
+    // If relevant, how many children under us
+    unsigned int count;
     // The payload for this node
     AstData data;
 };
@@ -298,8 +290,6 @@ void ast_print_rec(AstNode *node, FILE *fp) {
     case K_LOGICAL_NOT:
     case K_BIT_NOT:
     case K_NEGATE:
-        variant = 2;
-        break;
     case K_INT_MAIN:
     case K_DECLARATION:
     case K_INIT_DECLARATION:
@@ -310,7 +300,7 @@ void ast_print_rec(AstNode *node, FILE *fp) {
     case K_MUL:
     case K_DIV:
     case K_MOD:
-        variant = 3;
+        variant = 2;
         break;
     case K_IDENTIFIER:
         variant = 1;
@@ -327,23 +317,17 @@ void ast_print_rec(AstNode *node, FILE *fp) {
         fprintf(fp, "%s", node->data.string);
         break;
     case 2:
-        fprintf(fp, "(%s ", name);
-        ast_print_rec(node->data.next, fp);
-        fputc(')', fp);
-        break;
-    case 3:
         fprintf(fp, "(%s", name);
-        AstChildren children = node->data.children;
-        for (unsigned int i = 0; i < children.count; ++i) {
+        for (unsigned int i = 0; i < node->count; ++i) {
             fputc(' ', fp);
-            ast_print_rec(children.nodes + i, fp);
+            ast_print_rec(node->data.children + i, fp);
         }
         fputc(')', fp);
         break;
     }
 }
 
-void ast_print(AstNode *node, FILE* fp) {
+void ast_print(AstNode *node, FILE *fp) {
     ast_print_rec(node, fp);
     fputs("\n", fp);
 }
@@ -413,13 +397,11 @@ AstNode *parse_int_main(ParseState *st) {
     parse_consume(st, T_LEFT_BRACE, "Expected `{` before function statements");
     AstNode *node = malloc(sizeof(AstNode));
     node->kind = K_INT_MAIN;
-    node->data.children.count = 2;
-    node->data.children.nodes = malloc(2 * sizeof(AstNode));
-    AstNode litt;
-    litt.kind = K_NUMBER;
-    litt.data.num = 20;
-    node->data.children.nodes[0] = litt;
-    node->data.children.nodes[1] = litt;
+    node->count = 2;
+    node->data.children = malloc(2 * sizeof(AstNode));
+    AstNode litt = { .kind = K_NUMBER, .count = 0, .data = { .num = 20 }};
+    node->data.children[0] = litt;
+    node->data.children[1] = litt;
     return node;
 }
 
