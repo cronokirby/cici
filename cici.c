@@ -78,6 +78,9 @@ void token_print(Token t, FILE *fp) {
     case T_LITT_NUMBER:
         fprintf(fp, "Litt(%d)\n", t.litt);
         break;
+    case T_START:
+        fputs("START\n", fp);
+        break;
     case T_EOF:
         fputs("EOF\n", fp);
         break;
@@ -198,6 +201,8 @@ typedef enum AstKind {
     K_NUMBER
 } AstKind;
 
+typedef struct AstNode AstNode;
+
 // Holds multiple children for a given node.
 typedef struct AstChildren {
     // The number of nodes under us
@@ -219,12 +224,12 @@ typedef union AstData {
 } AstData;
 
 // The root syntax node type
-typedef struct AstNode {
+struct AstNode {
     // What kind of node this is
     AstKind kind;
     // The payload for this node
     AstData data;
-} AstNode;
+};
 
 typedef struct ParseState {
     // Holds the state of the lexer
@@ -268,7 +273,7 @@ bool parse_match(ParseState *st, TokenType *types, unsigned int type_count) {
 }
 
 void consume(ParseState *st, TokenType type, const char *msg) {
-    if (check(type)) {
+    if (parse_check(st, type)) {
         parse_advance(st);
         return;
     }
