@@ -29,6 +29,7 @@ typedef enum TokenType {
     T_LEFT_BRACE,
     T_RIGHT_BRACE,
     T_SEMICOLON,
+    T_COMMA,
     // Keywords
     T_INT,
     T_MAIN,
@@ -65,6 +66,9 @@ void token_print(Token t, FILE *fp) {
         break;
     case T_SEMICOLON:
         fputs(";\n", fp);
+        break;
+    case T_COMMA:
+        fputs(",\n", fp);
         break;
     case T_INT:
         fputs("int\n", fp);
@@ -121,6 +125,9 @@ Token lex_next(LexState *st) {
         } else if (next == ';') {
             st->index++;
             token.type = T_SEMICOLON;
+        } else if (next == ',') {
+            st->index++;
+            token.type = T_COMMA;
         } else if (IS_ALPHA(next)) {
             size_t size = BASE_STRING_SIZE;
             char *buf = malloc(size);
@@ -222,6 +229,8 @@ struct AstNode {
     // The payload for this node
     AstData data;
 };
+
+#define BASE_CHILDREN_SIZE 8
 
 void ast_print_rec(AstNode *node, FILE *fp) {
     if (node == NULL) {
@@ -389,19 +398,72 @@ void parse_consume(ParseState *st, TokenType type, const char *msg) {
     panic(msg);
 }
 
+AstNode *parse_top_expr(ParseState *st) {
+    return NULL;
+}
+
+void parse_declaration(ParseState *st, AstNode *node) {
+
+}
+
+void *parse_statement(ParseState *st, AstNode *node) {
+    if (parse_check(st, T_RETURN)) {
+        parse_advance(st);
+        node->kind = K_RETURN;
+        node->count = 1;
+        node->data.children = parse_top_expr(st);
+    } else if (parse_check(st, T_INT)) {
+        parse_advance(st);
+        node->kind = K_DECLARATION;
+        node->count = 1;
+        unsigned int allocated = BASE_CHILDREN_SIZE;
+        node->data.children = malloc(allocated * sizeof(AstNode));
+        parse_declaration(st, node->data.children);
+        if (parse_check(st, T_COMMA)) {
+            parse_advance(st);
+            int offset = node->count++;
+            if (node->count > allocated) {
+                allocated <<= 1;
+                size_t size = allocated * sizeof(AstNode);
+                node->data.children = realloc(node->data.children, size);
+            }
+            parse_declaration(st, node->data.children + offset);
+        }
+    } else {
+        node->kind = K_EXPR_STATEMENT;
+        node->count = 1;
+        node->data.children = parse_top_expr(st);
+    }
+    parse_consume(st, T_SEMICOLON, "Expected semicolon to end statement");
+    return node;
+}
+
 AstNode *parse_int_main(ParseState *st) {
     parse_consume(st, T_INT, "Expected int token at start of program");
     parse_consume(st, T_MAIN, "Expected `main` identifier");
     parse_consume(st, T_LEFT_PARENS, "Expected `(` after function name");
     parse_consume(st, T_RIGHT_PARENS, "Expected `)` after `(`");
     parse_consume(st, T_LEFT_BRACE, "Expected `{` before function statements");
+
     AstNode *node = malloc(sizeof(AstNode));
     node->kind = K_INT_MAIN;
-    node->count = 2;
-    node->data.children = malloc(2 * sizeof(AstNode));
-    AstNode litt = { .kind = K_NUMBER, .count = 0, .data = { .num = 20 }};
-    node->data.children[0] = litt;
-    node->data.children[1] = litt;
+    node->count = 0;
+    unsigned int allocated = BASE_CHILDREN_SIZE;
+    node->data.children = malloc(allocated * sizeof(AstNode));
+    while (!parse_check(st, T_RIGHT_BRACE) && !parse_at_end(st)) {
+        int offset = node->count++;
+        if (node->count > allocated) {
+            allocated <<= 1;
+            size_t size = allocated * sizeof(AstNode);
+            node->data.children = realloc(node->data.children, size);
+        }
+        parse_statement(st, node->data.children + offset);
+    }
+    if (parse_at_end(st)) {
+        printf("Error at index %ld:\n", st->lex_st.index);
+        panic("Unexpected EOF");
+    }
+    parse_advance(st);
     return node;
 }
 
