@@ -546,7 +546,7 @@ void parse_unary(ParseState *st, AstNode *node) {
 void parse_multiply(ParseState *st, AstNode *node) {
     parse_unary(st, node);
     TokenType operators[] = {T_ASTERISK, T_SLASH, T_PERCENT};
-    while (parse_match(st, operators, 2)) {
+    while (parse_match(st, operators, 3)) {
         AstNode *children = malloc(2 * sizeof(AstNode));
         children[0] = *node;
         TokenType matched = st->prev.type;
