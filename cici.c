@@ -1,3 +1,4 @@
+#include "assert.h"
 #include "stdbool.h"
 #include "stdio.h"
 #include "stdlib.h"
@@ -729,7 +730,117 @@ AstNode *parse_int_main(ParseState *st) {
     return node;
 }
 
-typedef enum CompileStage { STAGE_LEX, STAGE_PARSE } CompileStage;
+typedef struct AsmState {
+    FILE *out;
+} AsmState;
+
+void asm_expr(AsmState *st, AstNode *node) {
+    switch (node->kind) {
+    case K_NUMBER:
+        fprintf(st->out, "\tpushq\t$%d\n", node->data.num);
+        break;
+    case K_ADD:
+        asm_expr(st, node->data.children);
+        asm_expr(st, node->data.children + 1);
+        fputs("\tpopq\t%rbx\n", st->out);
+        fputs("\tpopq\t%rax\n", st->out);
+        fputs("\taddl\t%ebx, %eax\n", st->out);
+        fputs("\tpushq\t%rax\n", st->out);
+        break;
+    case K_SUB:
+        asm_expr(st, node->data.children);
+        asm_expr(st, node->data.children + 1);
+        fputs("\tpopq\t%rbx\n", st->out);
+        fputs("\tpopq\t%rax\n", st->out);
+        fputs("\tsubl\t%ebx, %eax\n", st->out);
+        fputs("\tpushq\t%rax\n", st->out);
+        break;
+    case K_MUL:
+        asm_expr(st, node->data.children);
+        asm_expr(st, node->data.children + 1);
+        fputs("\tpopq\t%rbx\n", st->out);
+        fputs("\tpopq\t%rax\n", st->out);
+        fputs("\timull\t%ebx, %eax\n", st->out);
+        fputs("\tpushq\t%rax\n", st->out);
+        break;
+    case K_DIV:
+        asm_expr(st, node->data.children);
+        asm_expr(st, node->data.children + 1);
+        fputs("\tpopq\t%rbx\n", st->out);
+        fputs("\tpopq\t%rax\n", st->out);
+        fputs("\timull\t%ebx, %eax\n", st->out);
+        fputs("\tpushq\t%rax\n", st->out);
+        fputs("\tcltd\n", st->out);
+        fputs("\tidivl\t%rbx\n", st->out);
+        fputs("\tpushq\t%rax\n", st->out);
+        break;
+    case K_MOD:
+        asm_expr(st, node->data.children);
+        asm_expr(st, node->data.children + 1);
+        fputs("\tpopq\t%rbx\n", st->out);
+        fputs("\tpopq\t%rax\n", st->out);
+        fputs("\timull\t%ebx, %eax\n", st->out);
+        fputs("\tpushq\t%rax\n", st->out);
+        fputs("\tcltd\n", st->out);
+        fputs("\tidivl\t%rbx\n", st->out);
+        fputs("\tpushq\t%rdx\n", st->out);
+        break;
+    case K_BIT_NOT:
+        asm_expr(st, node->data.children);
+        fputs("\tpopq\t%rax\n", st->out);
+        fputs("\tnot\t%eax\n", st->out);
+        fputs("\tpushq\t%rax\n", st->out);
+        break;
+    case K_NEGATE:
+        asm_expr(st, node->data.children);
+        fputs("\tpopq\t%rax\n", st->out);
+        fputs("\tneg\t%eax\n", st->out);
+        fputs("\tpushq\t%rax\n", st->out);
+        break;
+    case K_LOGICAL_NOT:
+        asm_expr(st, node->data.children);
+        fputs("\tpopq\t%rax\n", st->out);
+        fputs("\ttestl\t%eax, %eax\n", st->out);
+        fputs("\tsete\t%al", st->out);
+        fputs("\tmovzbl\t%al, %eax\n", st->out);
+        fputs("\tpushq\t%rax\n", st->out);
+        break;
+    default:
+        break;
+    }
+}
+
+void asm_statement(AsmState *st, AstNode *node) {
+    if (node->kind != K_RETURN) {
+        panic("Can't yet handle statements besides return");
+    }
+    node = node->data.children;
+    assert(node->kind == K_TOP_EXPR);
+    for (unsigned int i = 0; i < node->count; ++i) {
+        asm_expr(st, node->data.children + i);
+    }
+    // This will ignore all of the extra stack items we pushed
+    if (node->count > 1) {
+        fprintf(st->out, "\taddq\t$%d, %%rsp\n", (node->count - 1) << 3);
+    }
+    fputs("\tpopq\t%rax\n", st->out);
+    fputs("\tret\n", st->out);
+}
+
+void asm_gen(AsmState *st, AstNode *root) {
+    assert(root->kind == K_INT_MAIN);
+    fputs("\t.globl main\n", st->out);
+    fputs("main:\n", st->out);
+    for (unsigned int i = 0; i < root->count; ++i) {
+        asm_statement(st, root->data.children + i);
+    }
+}
+
+typedef enum CompileStage {
+    STAGE_LEX,
+    STAGE_PARSE,
+    STAGE_COMPILE
+} CompileStage;
 
 int main(int argc, char **argv) {
     if (argc < 2) {
@@ -740,13 +851,15 @@ int main(int argc, char **argv) {
     if (argc > 2) {
         out_filename = argv[2];
     }
-    CompileStage stage = STAGE_PARSE;
+    CompileStage stage = STAGE_COMPILE;
     if (argc > 3) {
         char *stage_str = argv[3];
         if (strcmp(stage_str, "lex") == 0) {
             stage = STAGE_LEX;
         } else if (strcmp(stage_str, "parse") == 0) {
             stage = STAGE_PARSE;
+        } else if (strcmp(stage_str, "compile") == 0) {
+            stage = STAGE_COMPILE;
         }
     }
     FILE *in = fopen(in_filename, "r");
@@ -788,6 +901,11 @@ int main(int argc, char **argv) {
     }
     ParseState parser = parse_init(lexer);
     AstNode *root = parse_int_main(&parser);
-    ast_print(root, out);
+    if (stage == STAGE_PARSE) {
+        ast_print(root, out);
+        return 0;
+    }
+    AsmState generator = {.out = out};
+    asm_gen(&generator, root);
     return 0;
 }
