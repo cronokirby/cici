@@ -63,7 +63,9 @@ def print_result(file, res):
 
 def main():
     print("Building compiler...\n")
-    run(["make"], stdout=PIPE, universal_newlines=True)
+    make_res = run(["make"], stdout=PIPE, universal_newlines=True)
+    if make_res.returncode != 0:
+        return
     print("Testing lex output...\n")
     c_files = sorted(list(get_c_files(TEST_DIR)))
     for file in c_files:
