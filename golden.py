@@ -22,9 +22,12 @@ def test_lex(file):
     with open(lex_file, "r") as fp:
         expected = join_split(fp.read())
     command = ["./cici", file, "stdout", "lex"]
-    result = run(command, stdout=PIPE, universal_newlines=True).stdout
-    result = join_split(result)
-    return (result == expected, expected, result)
+    result = run(command, stdout=PIPE, universal_newlines=True)
+    if result.returncode != 0:
+        return ("error", expected, result.stdout)
+    result = join_split(result.stdout)
+    code = "passed" if result == expected else "failed"
+    return (code, expected, result)
 
 
 def test_ast(file):
@@ -33,32 +36,46 @@ def test_ast(file):
     with open(lex_file, "r") as fp:
         expected = join_split(fp.read())
     command = ["./cici", file, "stdout", "parse"]
-    result = run(command, stdout=PIPE, universal_newlines=True).stdout
-    result = join_split(result)
-    return (result == expected, expected, result)
+    result = run(command, stdout=PIPE, universal_newlines=True)
+    if result.returncode != 0:
+        return ("error", expected, result.stdout)
+    result = join_split(result.stdout)
+    code = "passed" if result == expected else "failed"
+    return (code, expected, result)
 
 
 def print_result(file, res):
-    (passed, expected, result) = res
-    if passed:
+    (code, expected, result) = res
+    if code == "passed":
         print(f"\033[32m\033[1m{file} Ok\033[0m")
-    else:
+    elif code == "failed":
         print(f"\033[31m\033[1m{file} Fail\033[0m")
         print("\033[32mExpected:\033[0m")
         print(" ", expected)
         print("\033[31mBut found:\033[0m")
         print(" ", result)
+    elif code == "error":
+        print(f"\033[31m\033[1m{file} Error\033[0m")
+        for line in result.split("\n"):
+            print(" ", line)
+    return code == "passed"
 
 
-if __name__ == "__main__":
+def main():
     print("Building compiler...\n")
     run(["make"], stdout=PIPE, universal_newlines=True)
     print("Testing lex output...\n")
-    c_files = list(get_c_files(TEST_DIR))
+    c_files = sorted(list(get_c_files(TEST_DIR)))
     for file in c_files:
         res = test_lex(file)
-        print_result(file, res)
+        if not print_result(file, res):
+            return
     print("\nTesting parse output...\n")
     for file in c_files:
         res = test_ast(file)
-        print_result(file, res)
+        if not print_result(file, res):
+            return
+
+
+if __name__ == "__main__":
+    main()
