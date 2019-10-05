@@ -810,21 +810,32 @@ void asm_expr(AsmState *st, AstNode *node) {
     }
 }
 
+void asm_declare(AsmState *st, AstNode *node) {
+    panic("Can't handle declarations yet");
+}
+
 void asm_statement(AsmState *st, AstNode *node) {
-    if (node->kind != K_RETURN) {
-        panic("Can't yet handle statements besides return");
+    if (node->kind == K_RETURN) {
+        node = node->data.children;
+        assert(node->kind == K_TOP_EXPR);
+        for (unsigned int i = 0; i < node->count; ++i) {
+            asm_expr(st, node->data.children + i);
+        }
+        // This will ignore all of the extra stack items we pushed
+        if (node->count > 1) {
+            fprintf(st->out, "\taddq\t$%d, %%rsp\n", (node->count - 1) << 3);
+        }
+        fputs("\tpopq\t%rax\n", st->out);
+        fputs("\tret\n", st->out);
+    } else if (node->kind == K_EXPR_STATEMENT) {
+        // With the current state of our implementation, these have effects
+    } else if (node->kind == K_DECLARATION) {
+        for (unsigned int i = 0; i < node->count; ++i) {
+            asm_declare(st, node->data.children + i);
+        }
+    } else {
+        panic("Unable to handle statement type");
     }
-    node = node->data.children;
-    assert(node->kind == K_TOP_EXPR);
-    for (unsigned int i = 0; i < node->count; ++i) {
-        asm_expr(st, node->data.children + i);
-    }
-    // This will ignore all of the extra stack items we pushed
-    if (node->count > 1) {
-        fprintf(st->out, "\taddq\t$%d, %%rsp\n", (node->count - 1) << 3);
-    }
-    fputs("\tpopq\t%rax\n", st->out);
-    fputs("\tret\n", st->out);
 }
 
 void asm_gen(AsmState *st, AstNode *root) {
