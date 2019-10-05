@@ -121,10 +121,10 @@ void token_print(Token t, FILE *fp) {
         fputs("return\n", fp);
         break;
     case T_LITT_NUMBER:
-        fprintf(fp, "Litt(%d)\n", t.data.litt);
+        fprintf(fp, "%d\n", t.data.litt);
         break;
     case T_IDENTIFIER:
-        fprintf(fp, "Identifier(%s)\n", t.data.string);
+        fprintf(fp, "%s\n", t.data.string);
         break;
     case T_START:
         fputs("START\n", fp);

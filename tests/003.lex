@@ -1,1 +1,1 @@
-int main ( ) { return ! ~ - Litt(2) ; }
+int main ( ) { return ! ~ - 2 ; }

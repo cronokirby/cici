@@ -1,1 +1,1 @@
-int main ( ) { return Litt(1) + - Litt(1) + Litt(3) * ( Litt(4) + Litt(2) ) ; }
+int main ( ) { return 1 + - 1 + 3 * ( 4 + 2 ) ; }
