@@ -730,9 +730,68 @@ AstNode *parse_int_main(ParseState *st) {
     return node;
 }
 
+// Holds information about the storage for a given identifier
+typedef struct Storage {
+    // The identifier this storage belongs to
+    char *identifier;
+    // The offset (negative) from the top of the stack
+    int offset;
+} Storage;
+
 typedef struct AsmState {
+    // A collection of storage information
+    Storage *storages;
+    // The number of storage objects we've allocated
+    int storage_count;
+    // The size of this storage
+    size_t storage_size;
+    // How many bytes we've allocated on the stack so far
+    int allocated_stack;
+    // The stream we're generating to
     FILE *out;
 } AsmState;
+
+AsmState *asm_init(FILE *out) {
+    AsmState *st = malloc(sizeof(AsmState));
+    st->out = out;
+    st->allocated_stack = 0;
+    st->storage_size = st->storage_count * sizeof(Storage);
+    st->storages = malloc(st->storage_size);
+    return st;
+}
+
+// This will be > 0 if no offset was found
+int asm_offset_of(AsmState *st, char *identifier) {
+    for (int i = 0; i < st->storage_count; ++i) {
+        Storage *target = st->storages + i;
+        if (strcmp(target->identifier, identifier) == 0) {
+            return target->offset;
+        }
+    }
+    return 1;
+}
+
+// We assume this is an int that needs 4 bytes
+void asm_create_storage(AsmState *st, char *identifier) {
+    // There is storage already
+    if (asm_offset_of(st, identifier) <= 0) {
+        fputs("Error:\n", st->out);
+        fprintf(st->out, "Attempting to declare identifier %s twice\n",
+                identifier);
+        exit(-1);
+    }
+    int index = st->storage_count++;
+    if (st->storage_count * sizeof(Storage) > st->storage_size) {
+        st->storage_size <<= 1;
+        st->storages = realloc(st->storages, st->storage_size);
+    }
+    st->storages[index].identifier = identifier;
+    if (4 + (index << 4) > st->allocated_stack) {
+        fputs("\t\nsubq $16, %rsp", st->out);
+        st->allocated_stack += 16;
+    }
+    st->storages[index].offset = -4 * index;
+}
 
 void asm_expr(AsmState *st, AstNode *node) {
     switch (node->kind) {
@@ -916,7 +975,7 @@ int main(int argc, char **argv) {
         ast_print(root, out);
         return 0;
     }
-    AsmState generator = {.out = out};
-    asm_gen(&generator, root);
+    AsmState *generator = asm_init(out);
+    asm_gen(generator, root);
     return 0;
 }
