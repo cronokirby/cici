@@ -613,7 +613,7 @@ AstNode *parse_top_expr(ParseState *st) {
     unsigned int allocated = BASE_CHILDREN_SIZE;
     node->data.children = malloc(allocated * sizeof(AstNode));
     parse_assignment_expr(st, node->data.children);
-    if (parse_check(st, T_COMMA)) {
+    while (parse_check(st, T_COMMA)) {
         parse_advance(st);
         int offset = node->count++;
         if (node->count > allocated) {
@@ -673,7 +673,7 @@ void *parse_statement(ParseState *st, AstNode *node) {
         unsigned int allocated = BASE_CHILDREN_SIZE;
         node->data.children = malloc(allocated * sizeof(AstNode));
         parse_declaration(st, node->data.children);
-        if (parse_check(st, T_COMMA)) {
+        while (parse_check(st, T_COMMA)) {
             parse_advance(st);
             int offset = node->count++;
             if (node->count > allocated) {
