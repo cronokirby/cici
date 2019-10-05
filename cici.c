@@ -755,7 +755,8 @@ AsmState *asm_init(FILE *out) {
     AsmState *st = malloc(sizeof(AsmState));
     st->out = out;
     st->allocated_stack = 0;
-    st->storage_size = st->storage_count * sizeof(Storage);
+    st->storage_count = 0;
+    st->storage_size = 4 * sizeof(Storage);
     st->storages = malloc(st->storage_size);
     return st;
 }
@@ -775,9 +776,8 @@ int asm_offset_of(AsmState *st, char *identifier) {
 void asm_create_storage(AsmState *st, char *identifier) {
     // There is storage already
     if (asm_offset_of(st, identifier) <= 0) {
-        fputs("Error:\n", st->out);
-        fprintf(st->out, "Attempting to declare identifier %s twice\n",
-                identifier);
+        puts("Error:");
+        printf("Attempting to declare identifier %s twice\n", identifier);
         exit(-1);
     }
     int index = st->storage_count++;
@@ -786,8 +786,8 @@ void asm_create_storage(AsmState *st, char *identifier) {
         st->storages = realloc(st->storages, st->storage_size);
     }
     st->storages[index].identifier = identifier;
-    if (4 + (index << 4) > st->allocated_stack) {
-        fputs("\t\nsubq $16, %rsp", st->out);
+    if (4 + (index << 2) > st->allocated_stack) {
+        fputs("\tsubq\t$16, %rsp\n", st->out);
         st->allocated_stack += 16;
     }
     st->storages[index].offset = -4 * index;
@@ -797,6 +797,28 @@ void asm_expr(AsmState *st, AstNode *node) {
     switch (node->kind) {
     case K_NUMBER:
         fprintf(st->out, "\tpushq\t$%d\n", node->data.num);
+        break;
+    case K_IDENTIFIER: {
+        char *ident = node->data.string;
+        int offset = asm_offset_of(st, ident);
+        if (offset > 0) {
+            printf("Error:\nUse of undeclared identifier %s\n", ident);
+            exit(-1);
+        }
+        fprintf(st->out, "\tmovl\t%d(%%rbp), %%eax\n", offset);
+        fputs("\tpushq\t%rax\n", st->out);
+    } break;
+    case K_ASSIGN:
+        asm_expr(st, node->data.children + 1);
+        char *ident = node->data.children->data.string;
+        int offset = asm_offset_of(st, ident);
+        if (offset > 0) {
+            printf("Error:\nAssignment to undeclared identifier %s\n", ident);
+            exit(-1);
+        }
+        // We can just keep the top of the stack as our eventual return
+        fputs("\tmovq\t(%rsp), %rax\n", st->out);
+        fprintf(st->out, "\tmovl\t%%eax, %d(%%rbp)\n", offset);
         break;
     case K_ADD:
         asm_expr(st, node->data.children);
@@ -870,24 +892,46 @@ void asm_expr(AsmState *st, AstNode *node) {
 }
 
 void asm_declare(AsmState *st, AstNode *node) {
-    panic("Can't handle declarations yet");
+    if (node->kind == K_NO_INIT_DECLARATION) {
+        char *identifier = node->data.children[0].data.string;
+        asm_create_storage(st, identifier);
+    } else if (node->kind == K_INIT_DECLARATION) {
+        char *identifier = node->data.children[0].data.string;
+        asm_create_storage(st, identifier);
+        asm_expr(st, node->data.children + 1);
+        fputs("\tpopq\t%rax\n", st->out);
+        int offset = asm_offset_of(st, identifier);
+        if (offset > 0) {
+            printf("Error:\nStack offset %d > 0\n", offset);
+            exit(-1);
+        }
+        fprintf(st->out, "\tmovl\t%%eax, %d(%%rbp)\n", offset);
+    } else {
+        panic("Tried to process declaration, but kind was invalid");
+    }
+}
+
+void asm_top_expr(AsmState *st, AstNode *node) {
+    assert(node->kind == K_TOP_EXPR);
+    for (unsigned int i = 0; i < node->count; ++i) {
+        asm_expr(st, node->data.children + i);
+    }
+    // This will ignore all of the extra stack items we pushed
+    if (node->count > 1) {
+        fprintf(st->out, "\taddq\t$%d, %%rsp\n", (node->count - 1) << 3);
+    }
 }
 
 void asm_statement(AsmState *st, AstNode *node) {
     if (node->kind == K_RETURN) {
-        node = node->data.children;
-        assert(node->kind == K_TOP_EXPR);
-        for (unsigned int i = 0; i < node->count; ++i) {
-            asm_expr(st, node->data.children + i);
-        }
-        // This will ignore all of the extra stack items we pushed
-        if (node->count > 1) {
-            fprintf(st->out, "\taddq\t$%d, %%rsp\n", (node->count - 1) << 3);
-        }
+        asm_top_expr(st, node->data.children);
         fputs("\tpopq\t%rax\n", st->out);
+        fputs("\tmovq\t%rbp, %rsp\n", st->out);
+        fputs("\tpopq\t%rbp\n", st->out);
         fputs("\tret\n", st->out);
     } else if (node->kind == K_EXPR_STATEMENT) {
-        // With the current state of our implementation, these have effects
+        asm_top_expr(st, node->data.children);
+        fputs("\taddq\t$8, %rsp\n", st->out);
     } else if (node->kind == K_DECLARATION) {
         for (unsigned int i = 0; i < node->count; ++i) {
             asm_declare(st, node->data.children + i);
@@ -901,6 +945,8 @@ void asm_gen(AsmState *st, AstNode *root) {
     assert(root->kind == K_INT_MAIN);
     fputs("\t.globl main\n", st->out);
     fputs("main:\n", st->out);
+    fputs("\tpushq\t%rbp\n", st->out);
+    fputs("\tmovq\t%rsp, %rbp\n", st->out);
     for (unsigned int i = 0; i < root->count; ++i) {
         asm_statement(st, root->data.children + i);
     }
