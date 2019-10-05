@@ -626,6 +626,16 @@ AstNode *parse_top_expr(ParseState *st) {
     return node;
 }
 
+void parse_top_expr_opt(ParseState *st, AstNode *node) {
+    if (parse_check(st, T_SEMICOLON)) {
+        node->count = 0;
+        node->data.children = NULL;
+    } else {
+        node->count = 1;
+        node->data.children = parse_top_expr(st);
+    }
+}
+
 AstNode *parse_declarator(ParseState *st) {
     AstNode *node = malloc(sizeof(AstNode));
     node->kind = K_IDENTIFIER;
@@ -664,8 +674,7 @@ void *parse_statement(ParseState *st, AstNode *node) {
     if (parse_check(st, T_RETURN)) {
         parse_advance(st);
         node->kind = K_RETURN;
-        node->count = 1;
-        node->data.children = parse_top_expr(st);
+        parse_top_expr_opt(st, node);
     } else if (parse_check(st, T_INT)) {
         parse_advance(st);
         node->kind = K_DECLARATION;
@@ -685,8 +694,7 @@ void *parse_statement(ParseState *st, AstNode *node) {
         }
     } else {
         node->kind = K_EXPR_STATEMENT;
-        node->count = 1;
-        node->data.children = parse_top_expr(st);
+        parse_top_expr_opt(st, node);
     }
     parse_consume(st, T_SEMICOLON, "Expected semicolon to end statement");
     return node;

@@ -1,0 +1,1 @@
+(int-main (expr-statement) (return))
