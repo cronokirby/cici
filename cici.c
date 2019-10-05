@@ -183,7 +183,30 @@ Token lex_next(LexState *st) {
             token.type = T_MINUS;
         } else if (next == '/') {
             st->index++;
-            token.type = T_SLASH;
+            next = st->program[st->index];
+            if (next == '/') {
+                while (next != '\n') {
+                    next = st->program[st->index++];
+                }
+                continue;
+            } else if (next == '*') {
+                // This avoids us matching `/*/` as a complete comment
+                st->index++;
+                int stage = 0;
+                for (;;) {
+                    next = st->program[st->index++];
+                    if (stage == 1 && next == '/') {
+                        break;
+                    } else if (next == '*') {
+                        stage = 1;
+                    } else {
+                        stage = 0;
+                    }
+                }
+                continue;
+            } else {
+                token.type = T_SLASH;
+            }
         } else if (next == '*') {
             st->index++;
             token.type = T_ASTERISK;
