@@ -16,11 +16,24 @@ def join_split(str):
     return ' '.join(str.split())
 
 
-def test_lex(file):
-    lex_file = file[:-2] + ".lex"
+def get_expected(name, file):
     expected = ""
-    with open(lex_file, "r") as fp:
-        expected = join_split(fp.read())
+    header = "/*" + name + "\n"
+    with open(file, "r") as fp:
+        capture = False
+        for line in fp:
+            if line == header:
+                capture = True
+                continue
+            if capture:
+                if line == "*/\n":
+                    break
+                expected += line
+    return expected
+
+
+def test_lex(file):
+    expected = join_split(get_expected("LEX", file))
     command = ["./cici", file, "stdout", "lex"]
     result = run(command, stdout=PIPE, universal_newlines=True)
     if result.returncode != 0:
@@ -31,10 +44,7 @@ def test_lex(file):
 
 
 def test_ast(file):
-    lex_file = file[:-2] + ".ast"
-    expected = ""
-    with open(lex_file, "r") as fp:
-        expected = join_split(fp.read())
+    expected = join_split(get_expected("AST", file))
     command = ["./cici", file, "stdout", "parse"]
     result = run(command, stdout=PIPE, universal_newlines=True)
     if result.returncode != 0:
