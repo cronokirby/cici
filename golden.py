@@ -62,7 +62,6 @@ def test_ast(file):
 
 
 def test_ret(file):
-    print(file)
     expected = get_expected_return(file)
     comp = run(["./cici", file, file + ".s", "compile"],
                stdout=PIPE, universal_newlines=True)
