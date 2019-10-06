@@ -32,6 +32,13 @@ def get_expected(name, file):
     return expected
 
 
+def get_expected_return(file):
+    with open(file, "r") as fp:
+        for line in fp:
+            if line.startswith("//RET"):
+                return int(line.split()[1])
+
+
 def test_lex(file):
     expected = join_split(get_expected("LEX", file))
     command = ["./cici", file, "stdout", "lex"]
@@ -51,6 +58,24 @@ def test_ast(file):
         return ("error", expected, result.stdout)
     result = join_split(result.stdout)
     code = "passed" if result == expected else "failed"
+    return (code, expected, result)
+
+
+def test_ret(file):
+    print(file)
+    expected = get_expected_return(file)
+    comp = run(["./cici", file, file + ".s", "compile"],
+               stdout=PIPE, universal_newlines=True)
+    if comp.returncode != 0:
+        return ("error", expected, comp.stdout)
+    build_asm = run(["gcc", file + ".s"], stdout=PIPE, universal_newlines=True)
+    if build_asm.returncode != 0:
+        return ("error", expected, build_asm.stdout)
+    result = run(["./a.out"]).returncode
+    code = "failed"
+    if result == expected:
+        os.remove(file + ".s")
+        code = "passed"
     return (code, expected, result)
 
 
@@ -85,6 +110,11 @@ def main():
     print("\nTesting parse output...\n")
     for file in c_files:
         res = test_ast(file)
+        if not print_result(file, res):
+            return
+    print("\nTesting run output...\n")
+    for file in c_files:
+        res = test_ret(file)
         if not print_result(file, res):
             return
 

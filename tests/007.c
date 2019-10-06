@@ -13,6 +13,7 @@ int main ( ) {
     (expr-statement (top-expr 1 2 3))
     (return (top-expr (+ (+ x y) z))))
 */
+//RET 7
 int main() {
     int x, y, z;
     z = x = 2, y = 3;

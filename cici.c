@@ -849,10 +849,8 @@ void asm_expr(AsmState *st, AstNode *node) {
         asm_expr(st, node->data.children + 1);
         fputs("\tpopq\t%rbx\n", st->out);
         fputs("\tpopq\t%rax\n", st->out);
-        fputs("\timull\t%ebx, %eax\n", st->out);
-        fputs("\tpushq\t%rax\n", st->out);
         fputs("\tcltd\n", st->out);
-        fputs("\tidivl\t%rbx\n", st->out);
+        fputs("\tidivl\t%ebx\n", st->out);
         fputs("\tpushq\t%rax\n", st->out);
         break;
     case K_MOD:
@@ -860,10 +858,8 @@ void asm_expr(AsmState *st, AstNode *node) {
         asm_expr(st, node->data.children + 1);
         fputs("\tpopq\t%rbx\n", st->out);
         fputs("\tpopq\t%rax\n", st->out);
-        fputs("\timull\t%ebx, %eax\n", st->out);
-        fputs("\tpushq\t%rax\n", st->out);
         fputs("\tcltd\n", st->out);
-        fputs("\tidivl\t%rbx\n", st->out);
+        fputs("\tidivl\t%ebx\n", st->out);
         fputs("\tpushq\t%rdx\n", st->out);
         break;
     case K_BIT_NOT:
@@ -882,7 +878,7 @@ void asm_expr(AsmState *st, AstNode *node) {
         asm_expr(st, node->data.children);
         fputs("\tpopq\t%rax\n", st->out);
         fputs("\ttestl\t%eax, %eax\n", st->out);
-        fputs("\tsete\t%al", st->out);
+        fputs("\tsete\t%al\n", st->out);
         fputs("\tmovzbl\t%al, %eax\n", st->out);
         fputs("\tpushq\t%rax\n", st->out);
         break;
@@ -930,8 +926,10 @@ void asm_statement(AsmState *st, AstNode *node) {
         fputs("\tpopq\t%rbp\n", st->out);
         fputs("\tret\n", st->out);
     } else if (node->kind == K_EXPR_STATEMENT) {
-        asm_top_expr(st, node->data.children);
-        fputs("\taddq\t$8, %rsp\n", st->out);
+        if (node->count == 1) {
+            asm_top_expr(st, node->data.children);
+            fputs("\taddq\t$8, %rsp\n", st->out);
+        }
     } else if (node->kind == K_DECLARATION) {
         for (unsigned int i = 0; i < node->count; ++i) {
             asm_declare(st, node->data.children + i);
