@@ -2,7 +2,7 @@
 int main ( ) { return 1 + - 1 + 3 * ( 4 + 2 ) ; }
 */
 /*AST
-(int-main (block (return (top-expr (+ (+ 1 (- 1)) (* 3 (+ 4 2)))))))
+(top-level (function main (block (return (top-expr (+ (+ 1 (- 1)) (* 3 (+ 4 2))))))))
 */
 //RET 18
 int main() { return 1 + -1 + 3 * (4 + 2); }

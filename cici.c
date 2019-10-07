@@ -41,7 +41,6 @@ typedef enum TokenType {
     T_TILDE,
     // Keywords
     T_INT,
-    T_MAIN,
     T_RETURN,
     // Litteral
     T_LITT_NUMBER,
@@ -114,9 +113,6 @@ void token_print(Token t, FILE *fp) {
         break;
     case T_INT:
         fputs("int\n", fp);
-        break;
-    case T_MAIN:
-        fputs("main\n", fp);
         break;
     case T_RETURN:
         fputs("return\n", fp);
@@ -234,9 +230,7 @@ Token lex_next(LexState *st) {
                 st->index++;
             }
             buf[index] = 0;
-            if (strcmp(buf, "main") == 0) {
-                token.type = T_MAIN;
-            } else if (strcmp(buf, "return") == 0) {
+            if (strcmp(buf, "return") == 0) {
                 token.type = T_RETURN;
             } else if (strcmp(buf, "int") == 0) {
                 token.type = T_INT;
@@ -264,6 +258,10 @@ Token lex_next(LexState *st) {
 typedef enum AstKind {
     // Represents an int main function with a sequence of statements
     K_INT_MAIN,
+    // Holds the top level declarations
+    K_TOP_LEVEL,
+    // Represents a function with a body
+    K_FUNCTION,
     // Represents a block containing a series of statements
     K_BLOCK,
     // Represents an expression statement e.g. `foo();`
@@ -335,6 +333,12 @@ void ast_print_rec(AstNode *node, FILE *fp) {
     case K_INT_MAIN:
         name = "int-main";
         break;
+    case K_TOP_LEVEL:
+        name = "top-level";
+        break;
+    case K_FUNCTION:
+        name = "function";
+        break;
     case K_BLOCK:
         name = "block";
         break;
@@ -390,30 +394,14 @@ void ast_print_rec(AstNode *node, FILE *fp) {
     }
     int variant;
     switch (node->kind) {
-    case K_EXPR_STATEMENT:
-    case K_RETURN:
-    case K_NO_INIT_DECLARATION:
-    case K_LOGICAL_NOT:
-    case K_BIT_NOT:
-    case K_NEGATE:
-    case K_INT_MAIN:
-    case K_BLOCK:
-    case K_DECLARATION:
-    case K_INIT_DECLARATION:
-    case K_TOP_EXPR:
-    case K_ASSIGN:
-    case K_ADD:
-    case K_SUB:
-    case K_MUL:
-    case K_DIV:
-    case K_MOD:
-        variant = 2;
-        break;
     case K_IDENTIFIER:
         variant = 1;
         break;
     case K_NUMBER:
         variant = 0;
+        break;
+    default:
+        variant = 2;
         break;
     }
     switch (variant) {
@@ -729,17 +717,36 @@ void parse_block(ParseState *st, AstNode *node) {
     parse_advance(st);
 }
 
-AstNode *parse_int_main(ParseState *st) {
-    parse_consume(st, T_INT, "Expected int token at start of program");
-    parse_consume(st, T_MAIN, "Expected `main` identifier");
-    parse_consume(st, T_LEFT_PARENS, "Expected `(` after function name");
-    parse_consume(st, T_RIGHT_PARENS, "Expected `)` after `(`");
+void parse_function(ParseState *st, AstNode *node) {
+    node->kind = K_FUNCTION;
+    node->count = 2;
+    node->data.children = malloc(2 * sizeof(AstNode));
+    parse_consume(st, T_IDENTIFIER, "Function definition must have identifier");
+    node->data.children[0].kind = K_IDENTIFIER;
+    node->data.children[0].count = 0;
+    node->data.children[0].data.string = st->prev.data.string;
+    parse_consume(st, T_LEFT_PARENS, "Expected ( after function name");
+    parse_consume(st, T_RIGHT_PARENS,
+                  "Expected matching ) after function parameters");
+    parse_block(st, node->data.children + 1);
+}
 
+AstNode *parse_top_level(ParseState *st) {
     AstNode *node = malloc(sizeof(AstNode));
-    node->kind = K_INT_MAIN;
-    node->count = 1;
-    node->data.children = malloc(sizeof(AstNode));
-    parse_block(st, node->data.children);
+    node->kind = K_TOP_LEVEL;
+    node->count = 0;
+    unsigned int allocated = BASE_CHILDREN_SIZE;
+    node->data.children = malloc(allocated * sizeof(AstNode));
+    while (parse_check(st, T_INT)) {
+        parse_advance(st);
+        int offset = node->count++;
+        if (node->count > allocated) {
+            allocated <<= 1;
+            size_t size = allocated * sizeof(AstNode);
+            node->data.children = realloc(node->data.children, size);
+        }
+        parse_function(st, node->data.children + offset);
+    }
     return node;
 }
 
@@ -1029,7 +1036,7 @@ int main(int argc, char **argv) {
         return 0;
     }
     ParseState parser = parse_init(lexer);
-    AstNode *root = parse_int_main(&parser);
+    AstNode *root = parse_top_level(&parser);
     if (stage == STAGE_PARSE) {
         ast_print(root, out);
         return 0;
