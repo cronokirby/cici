@@ -959,16 +959,25 @@ void asm_statement(AsmState *st, AstNode *node) {
     }
 }
 
-void asm_gen(AsmState *st, AstNode *root) {
-    assert(root->kind == K_INT_MAIN);
-    fputs("\t.globl main\n", st->out);
-    fputs("main:\n", st->out);
+void asm_function(AsmState *st, AstNode *node) {
+    assert(node->kind == K_FUNCTION);
+    AstNode *name = node->data.children;
+    assert(name->kind == K_IDENTIFIER);
+    fprintf(st->out, "\t.globl %s\n", name->data.string);
+    fprintf(st->out, "%s:\n", name->data.string);
     fputs("\tpushq\t%rbp\n", st->out);
     fputs("\tmovq\t%rsp, %rbp\n", st->out);
-    AstNode *block = root->data.children;
+    AstNode *block = node->data.children + 1;
     assert(block->kind == K_BLOCK);
     for (unsigned int i = 0; i < block->count; ++i) {
         asm_statement(st, block->data.children + i);
+    }
+}
+
+void asm_gen(AsmState *st, AstNode *root) {
+    assert(root->kind == K_TOP_LEVEL);
+    for (unsigned int i = 0; i < root->count; ++i) {
+        asm_function(st, root->data.children + i);
     }
 }
 
