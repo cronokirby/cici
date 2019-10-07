@@ -7,11 +7,11 @@ int main ( ) {
 }
 */
 /*AST
-(int-main
+(int-main (block
     (declaration (declare x) (declare y) (declare z))
     (expr-statement (top-expr (= z (= x 2)) (= y 3)))
     (expr-statement (top-expr 1 2 3))
-    (return (top-expr (+ (+ x y) z))))
+    (return (top-expr (+ (+ x y) z)))))
 */
 //RET 7
 int main() {

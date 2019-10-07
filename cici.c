@@ -264,6 +264,8 @@ Token lex_next(LexState *st) {
 typedef enum AstKind {
     // Represents an int main function with a sequence of statements
     K_INT_MAIN,
+    // Represents a block containing a series of statements
+    K_BLOCK,
     // Represents an expression statement e.g. `foo();`
     K_EXPR_STATEMENT,
     // Represents a declaration statement e.g. `int x = 1;`
@@ -333,6 +335,9 @@ void ast_print_rec(AstNode *node, FILE *fp) {
     case K_INT_MAIN:
         name = "int-main";
         break;
+    case K_BLOCK:
+        name = "block";
+        break;
     case K_EXPR_STATEMENT:
         name = "expr-statement";
         break;
@@ -392,6 +397,7 @@ void ast_print_rec(AstNode *node, FILE *fp) {
     case K_BIT_NOT:
     case K_NEGATE:
     case K_INT_MAIN:
+    case K_BLOCK:
     case K_DECLARATION:
     case K_INIT_DECLARATION:
     case K_TOP_EXPR:
@@ -701,15 +707,9 @@ void *parse_statement(ParseState *st, AstNode *node) {
     return node;
 }
 
-AstNode *parse_int_main(ParseState *st) {
-    parse_consume(st, T_INT, "Expected int token at start of program");
-    parse_consume(st, T_MAIN, "Expected `main` identifier");
-    parse_consume(st, T_LEFT_PARENS, "Expected `(` after function name");
-    parse_consume(st, T_RIGHT_PARENS, "Expected `)` after `(`");
-    parse_consume(st, T_LEFT_BRACE, "Expected `{` before function statements");
-
-    AstNode *node = malloc(sizeof(AstNode));
-    node->kind = K_INT_MAIN;
+void parse_block(ParseState *st, AstNode *node) {
+    parse_consume(st, T_LEFT_BRACE, "Expected `{` to start block");
+    node->kind = K_BLOCK;
     node->count = 0;
     unsigned int allocated = BASE_CHILDREN_SIZE;
     node->data.children = malloc(allocated * sizeof(AstNode));
@@ -727,6 +727,19 @@ AstNode *parse_int_main(ParseState *st) {
         panic("Unexpected EOF");
     }
     parse_advance(st);
+}
+
+AstNode *parse_int_main(ParseState *st) {
+    parse_consume(st, T_INT, "Expected int token at start of program");
+    parse_consume(st, T_MAIN, "Expected `main` identifier");
+    parse_consume(st, T_LEFT_PARENS, "Expected `(` after function name");
+    parse_consume(st, T_RIGHT_PARENS, "Expected `)` after `(`");
+
+    AstNode *node = malloc(sizeof(AstNode));
+    node->kind = K_INT_MAIN;
+    node->count = 1;
+    node->data.children = malloc(sizeof(AstNode));
+    parse_block(st, node->data.children);
     return node;
 }
 
@@ -945,8 +958,10 @@ void asm_gen(AsmState *st, AstNode *root) {
     fputs("main:\n", st->out);
     fputs("\tpushq\t%rbp\n", st->out);
     fputs("\tmovq\t%rsp, %rbp\n", st->out);
-    for (unsigned int i = 0; i < root->count; ++i) {
-        asm_statement(st, root->data.children + i);
+    AstNode *block = root->data.children;
+    assert(block->kind == K_BLOCK);
+    for (unsigned int i = 0; i < block->count; ++i) {
+        asm_statement(st, block->data.children + i);
     }
 }
 
