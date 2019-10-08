@@ -39,6 +39,9 @@ typedef enum TokenType {
     T_PERCENT,
     T_EXCLAMATION,
     T_TILDE,
+    T_AMPERSAND,
+    T_VERT_BAR,
+    T_CARET,
     // Keywords
     T_INT,
     T_RETURN,
@@ -110,6 +113,15 @@ void token_print(Token t, FILE *fp) {
         break;
     case T_TILDE:
         fputs("~\n", fp);
+        break;
+    case T_VERT_BAR:
+        fputs("|\n", fp);
+        break;
+    case T_CARET:
+        fputs("^\n", fp);
+        break;
+    case T_AMPERSAND:
+        fputs("&\n", fp);
         break;
     case T_INT:
         fputs("int\n", fp);
@@ -216,6 +228,15 @@ Token lex_next(LexState *st) {
         } else if (next == '~') {
             st->index++;
             token.type = T_TILDE;
+        } else if (next == '&') {
+            st->index++;
+            token.type = T_AMPERSAND;
+        } else if (next == '|') {
+            st->index++;
+            token.type = T_VERT_BAR;
+        } else if (next == '^') {
+            st->index++;
+            token.type = T_CARET;
         } else if (IS_ALPHA(next)) {
             size_t size = BASE_STRING_SIZE;
             char *buf = malloc(size);
@@ -294,6 +315,12 @@ typedef enum AstKind {
     K_LOGICAL_NOT,
     // ~a
     K_BIT_NOT,
+    // a & b
+    K_BIT_AND,
+    // a | b
+    K_BIT_OR,
+    // a ^ b
+    K_BIT_XOR,
     // -a
     K_NEGATE,
     // Represents an identifier.
@@ -367,6 +394,15 @@ void ast_print_rec(AstNode *node, FILE *fp) {
         break;
     case K_BIT_NOT:
         name = "~";
+        break;
+    case K_BIT_AND:
+        name = "&";
+        break;
+    case K_BIT_OR:
+        name = "|";
+        break;
+    case K_BIT_XOR:
+        name = "^";
         break;
     case K_NEGATE:
         name = "-";
@@ -594,6 +630,45 @@ void parse_add(ParseState *st, AstNode *node) {
     }
 }
 
+void parse_and(ParseState *st, AstNode *node) {
+    parse_add(st, node);
+    while (parse_check(st, T_AMPERSAND)) {
+        parse_advance(st);
+        AstNode *children = malloc(2 * sizeof(AstNode));
+        children[0] = *node;
+        node->kind = K_BIT_AND;
+        node->count = 2;
+        parse_add(st, children + 1);
+        node->data.children = children;
+    }
+}
+
+void parse_exclusive_or(ParseState *st, AstNode *node) {
+    parse_and(st, node);
+    while (parse_check(st, T_CARET)) {
+        parse_advance(st);
+        AstNode *children = malloc(2 * sizeof(AstNode));
+        children[0] = *node;
+        node->kind = K_BIT_XOR;
+        node->count = 2;
+        parse_and(st, children + 1);
+        node->data.children = children;
+    }
+}
+
+void parse_inclusive_or(ParseState *st, AstNode *node) {
+    parse_exclusive_or(st, node);
+    while (parse_check(st, T_VERT_BAR)) {
+        parse_advance(st);
+        AstNode *children = malloc(2 * sizeof(AstNode));
+        children[0] = *node;
+        node->kind = K_BIT_OR;
+        node->count = 2;
+        parse_exclusive_or(st, children + 1);
+        node->data.children = children;
+    }
+}
+
 void parse_assignment_expr(ParseState *st, AstNode *node) {
     ParseState rewind = *st;
     if (parse_check(st, T_IDENTIFIER)) {
@@ -612,10 +687,10 @@ void parse_assignment_expr(ParseState *st, AstNode *node) {
             parse_assignment_expr(st, children + 1);
         } else {
             *st = rewind;
-            parse_add(st, node);
+            parse_inclusive_or(st, node);
         }
     } else {
-        parse_add(st, node);
+        parse_inclusive_or(st, node);
     }
 }
 
@@ -907,6 +982,30 @@ void asm_expr(AsmState *st, AstNode *node) {
         fputs("\tcltd\n", st->out);
         fputs("\tidivl\t%ebx\n", st->out);
         fputs("\tpushq\t%rdx\n", st->out);
+        break;
+    case K_BIT_AND:
+        asm_expr(st, node->data.children);
+        asm_expr(st, node->data.children + 1);
+        fputs("\tpopq\t%rbx\n", st->out);
+        fputs("\tpopq\t%rax\n", st->out);
+        fputs("\tand\t%ebx, %eax\n", st->out);
+        fputs("\tpushq\t%rax\n", st->out);
+        break;
+    case K_BIT_OR:
+        asm_expr(st, node->data.children);
+        asm_expr(st, node->data.children + 1);
+        fputs("\tpopq\t%rbx\n", st->out);
+        fputs("\tpopq\t%rax\n", st->out);
+        fputs("\tor\t%ebx, %eax\n", st->out);
+        fputs("\tpushq\t%rax\n", st->out);
+        break;
+    case K_BIT_XOR:
+        asm_expr(st, node->data.children);
+        asm_expr(st, node->data.children + 1);
+        fputs("\tpopq\t%rbx\n", st->out);
+        fputs("\tpopq\t%rax\n", st->out);
+        fputs("\txor\t%ebx, %eax\n", st->out);
+        fputs("\tpushq\t%rax\n", st->out);
         break;
     case K_BIT_NOT:
         asm_expr(st, node->data.children);
