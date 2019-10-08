@@ -262,6 +262,8 @@ typedef enum AstKind {
     K_TOP_LEVEL,
     // Represents a function with a body
     K_FUNCTION,
+    // Represents a function call
+    K_CALL,
     // Represents a block containing a series of statements
     K_BLOCK,
     // Represents an expression statement e.g. `foo();`
@@ -338,6 +340,9 @@ void ast_print_rec(AstNode *node, FILE *fp) {
         break;
     case K_FUNCTION:
         name = "function";
+        break;
+    case K_CALL:
+        name = "call";
         break;
     case K_BLOCK:
         name = "block";
@@ -500,9 +505,22 @@ void parse_primary(ParseState *st, AstNode *node) {
         node->data.num = st->prev.data.litt;
     } else if (parse_check(st, T_IDENTIFIER)) {
         parse_advance(st);
-        node->kind = K_IDENTIFIER;
-        node->count = 0;
-        node->data.string = st->prev.data.string;
+        char *name = st->prev.data.string;
+        if (parse_check(st, T_LEFT_PARENS)) {
+            parse_advance(st);
+            parse_consume(st, T_RIGHT_PARENS, "Expected matching `)`");
+            node->kind = K_CALL;
+            node->count = 1;
+            node->data.children = malloc(sizeof(AstNode));
+            AstNode *id = node->data.children;
+            id->kind = K_IDENTIFIER;
+            id->count = 0;
+            id->data.string = name;
+        } else {
+            node->kind = K_IDENTIFIER;
+            node->count = 0;
+            node->data.string = name;
+        }
     } else {
         printf("Error at index %ld:\n", st->lex_st.index);
         puts("Unexpected Token:");
