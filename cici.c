@@ -831,6 +831,11 @@ void asm_create_storage(AsmState *st, char *identifier) {
     st->storages[index].offset = -4 * index;
 }
 
+void asm_call(AsmState *st, char *identifier) {
+    fprintf(st->out, "\tcall\t%s\n", identifier);
+    fputs("\tpushq\t%rax\n", st->out);
+}
+
 void asm_expr(AsmState *st, AstNode *node) {
     switch (node->kind) {
     case K_NUMBER:
@@ -846,6 +851,9 @@ void asm_expr(AsmState *st, AstNode *node) {
         fprintf(st->out, "\tmovl\t%d(%%rbp), %%eax\n", offset);
         fputs("\tpushq\t%rax\n", st->out);
     } break;
+    case K_CALL:
+        asm_call(st, node->data.children->data.string);
+        break;
     case K_ASSIGN:
         asm_expr(st, node->data.children + 1);
         char *ident = node->data.children->data.string;
