@@ -283,6 +283,8 @@ typedef enum AstKind {
     K_TOP_LEVEL,
     // Represents a function with a body
     K_FUNCTION,
+    // Represents the inputs to a function definitions
+    K_PARAM_DEFS,
     // Represents a function call
     K_CALL,
     // Represents a block containing a series of statements
@@ -367,6 +369,9 @@ void ast_print_rec(AstNode *node, FILE *fp) {
         break;
     case K_FUNCTION:
         name = "function";
+        break;
+    case K_PARAM_DEFS:
+        name = "params-def";
         break;
     case K_CALL:
         name = "call";
@@ -810,18 +815,47 @@ void parse_block(ParseState *st, AstNode *node) {
     parse_advance(st);
 }
 
+void parse_param_definition(ParseState *st, AstNode *node) {
+    parse_consume(st, T_INT, "Expected a param with type int");
+    parse_consume(st, T_IDENTIFIER, "Expected a param to have an identifier");
+    node->kind = T_IDENTIFIER;
+    node->count = 0;
+    node->data.string = st->prev.data.string;
+}
+
+void parse_params_def(ParseState *st, AstNode *node) {
+    parse_consume(st, T_LEFT_PARENS,
+                  "Expected `(` to start function param definition");
+    node->kind = K_PARAM_DEFS;
+    node->count = 0;
+    unsigned int allocated = BASE_CHILDREN_SIZE;
+    node->data.children = malloc(allocated * sizeof(AstNode));
+    if (!parse_check(st, T_RIGHT_PARENS)) {
+        node->count = 1;
+        parse_param_definition(st, node->data.children);
+    }
+    while (parse_check(st, T_COMMA)) {
+        int offset = node->count++;
+        if (node->count > allocated) {
+            allocated <<= 1;
+            size_t size = allocated * sizeof(AstNode);
+            node->data.children = realloc(node->data.children, size);
+        }
+        parse_param_definition(st, node->data.children + offset);
+    }
+    parse_consume(st, T_RIGHT_PARENS, "Expected `)` to end function params");
+}
+
 void parse_function(ParseState *st, AstNode *node) {
     node->kind = K_FUNCTION;
-    node->count = 2;
-    node->data.children = malloc(2 * sizeof(AstNode));
+    node->count = 3;
+    node->data.children = malloc(3 * sizeof(AstNode));
     parse_consume(st, T_IDENTIFIER, "Function definition must have identifier");
     node->data.children[0].kind = K_IDENTIFIER;
     node->data.children[0].count = 0;
     node->data.children[0].data.string = st->prev.data.string;
-    parse_consume(st, T_LEFT_PARENS, "Expected ( after function name");
-    parse_consume(st, T_RIGHT_PARENS,
-                  "Expected matching ) after function parameters");
-    parse_block(st, node->data.children + 1);
+    parse_params_def(st, node->data.children + 1);
+    parse_block(st, node->data.children + 2);
 }
 
 AstNode *parse_top_level(ParseState *st) {
