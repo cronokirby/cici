@@ -925,6 +925,7 @@ typedef struct AsmState {
 AsmState *asm_init(FILE *out) {
     AsmState *st = malloc(sizeof(AsmState));
     st->out = out;
+    asm_reset_storage(st);
     st->allocated_stack = 0;
     st->storage_count = 0;
     st->storage_size = 4 * sizeof(Storage);
@@ -941,6 +942,11 @@ int asm_offset_of(AsmState *st, char *identifier) {
         }
     }
     return 1;
+}
+
+void asm_reset_storage(AsmState *st) {
+    st->allocated_stack = 0;
+    st->storage_count = 0;
 }
 
 // We assume this is an int that needs 4 bytes
@@ -961,11 +967,43 @@ void asm_create_storage(AsmState *st, char *identifier) {
         fputs("\tsubq\t$16, %rsp\n", st->out);
         st->allocated_stack += 16;
     }
-    st->storages[index].offset = -4 * index;
+    // We need to add an extra shift, because even though the stack grows down
+    st->storages[index].offset = -4 * (index + 1);
 }
 
-void asm_call(AsmState *st, char *identifier) {
-    fprintf(st->out, "\tcall\t%s\n", identifier);
+char *asm_reg_for_nth_function_param(bool is64, int n) {
+    char *reg;
+    switch (n) {
+    case 0:
+        return is64 ? "%rdi" : "%edi";
+    case 1:
+        return is64 ? "%rsi" : "%esi";
+    case 2:
+        return is64 ? "%rdx" : "%edx";
+    case 3:
+        return is64 ? "%rcx" : "%ecx";
+    case 4:
+        return is64 ? "%r8" : "%r8d";
+    case 5:
+        return is64 ? "%r9" : "%r9d";
+    default:
+        puts("Function has more than 6 parameters");
+        exit(-1);
+    }
+}
+
+void asm_call(AsmState *st, AstNode *node) {
+    assert(node->kind == K_CALL);
+    AstNode *name = node->data.children;
+    AstNode *params = node->data.children + 1;
+    assert(name->kind == K_IDENTIFIER);
+    assert(params->kind == K_PARAMS);
+    for (unsigned int i = 0; i < params->count; ++i) {
+        asm_expr(st, params->data.children + i);
+        char *reg = asm_reg_for_nth_function_param(true, i);
+        fprintf(st->out, "\tpopq\t%s\n", reg);
+    }
+    fprintf(st->out, "\tcall\t%s\n", name->data.string);
     fputs("\tpushq\t%rax\n", st->out);
 }
 
@@ -985,7 +1023,7 @@ void asm_expr(AsmState *st, AstNode *node) {
         fputs("\tpushq\t%rax\n", st->out);
     } break;
     case K_CALL:
-        asm_call(st, node->data.children->data.string);
+        asm_call(st, node);
         break;
     case K_ASSIGN:
         asm_expr(st, node->data.children + 1);
@@ -1150,11 +1188,26 @@ void asm_function(AsmState *st, AstNode *node) {
     fprintf(st->out, "%s:\n", name->data.string);
     fputs("\tpushq\t%rbp\n", st->out);
     fputs("\tmovq\t%rsp, %rbp\n", st->out);
+    AstNode *params = node->data.children + 1;
+    assert(params->kind == K_PARAMS);
+    for (unsigned int i = 0; i < params->count; ++i) {
+        assert(params->data.children[i].kind == K_IDENTIFIER);
+        char *param_id = params->data.children[i].data.string;
+        asm_create_storage(st, param_id);
+        int offset = asm_offset_of(st, param_id);
+        if (offset > 0) {
+            printf("Error:\nStack offset %d > 0\n", offset);
+            exit(-1);
+        }
+        char *reg = asm_reg_for_nth_function_param(false, i);
+        fprintf(st->out, "\tmovl\t%s, %d(%%rbp)\n", reg, offset);
+    }
     AstNode *block = node->data.children + 2;
     assert(block->kind == K_BLOCK);
     for (unsigned int i = 0; i < block->count; ++i) {
         asm_statement(st, block->data.children + i);
     }
+    asm_reset_storage(st);
 }
 
 void asm_gen(AsmState *st, AstNode *root) {
