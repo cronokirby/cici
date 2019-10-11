@@ -534,6 +534,29 @@ void parse_consume(ParseState *st, TokenType type, const char *msg) {
 
 void parse_assignment_expr(ParseState *st, AstNode *node);
 
+// This should be called after accepting the first `(`
+void parse_function_call_params(ParseState *st, AstNode *node) {
+    node->kind = K_PARAMS;
+    node->count = 0;
+    unsigned int allocated = BASE_CHILDREN_SIZE;
+    node->data.children = malloc(allocated * sizeof(AstNode));
+    if (!parse_check(st, T_RIGHT_PARENS)) {
+        node->count = 1;
+        parse_assignment_expr(st, node->data.children);
+    }
+    while (parse_check(st, T_COMMA)) {
+        parse_advance(st);
+        int offset = node->count++;
+        if (node->count > allocated) {
+            allocated <<= 1;
+            size_t size = allocated * sizeof(AstNode);
+            node->data.children = realloc(node->data.children, size);
+        }
+        parse_assignment_expr(st, node->data.children + offset);
+    }
+    parse_consume(st, T_RIGHT_PARENS, "Expected `)` to end function params");
+}
+
 void parse_primary(ParseState *st, AstNode *node) {
     if (parse_check(st, T_LEFT_PARENS)) {
         parse_advance(st);
@@ -549,14 +572,14 @@ void parse_primary(ParseState *st, AstNode *node) {
         char *name = st->prev.data.string;
         if (parse_check(st, T_LEFT_PARENS)) {
             parse_advance(st);
-            parse_consume(st, T_RIGHT_PARENS, "Expected matching `)`");
             node->kind = K_CALL;
-            node->count = 1;
-            node->data.children = malloc(sizeof(AstNode));
+            node->count = 2;
+            node->data.children = malloc(2 * sizeof(AstNode));
             AstNode *id = node->data.children;
             id->kind = K_IDENTIFIER;
             id->count = 0;
             id->data.string = name;
+            parse_function_call_params(st, node->data.children + 1);
         } else {
             node->kind = K_IDENTIFIER;
             node->count = 0;
@@ -818,7 +841,7 @@ void parse_block(ParseState *st, AstNode *node) {
 void parse_param_definition(ParseState *st, AstNode *node) {
     parse_consume(st, T_INT, "Expected a param with type int");
     parse_consume(st, T_IDENTIFIER, "Expected a param to have an identifier");
-    node->kind = T_IDENTIFIER;
+    node->kind = K_IDENTIFIER;
     node->count = 0;
     node->data.string = st->prev.data.string;
 }
@@ -835,6 +858,7 @@ void parse_params_def(ParseState *st, AstNode *node) {
         parse_param_definition(st, node->data.children);
     }
     while (parse_check(st, T_COMMA)) {
+        parse_advance(st);
         int offset = node->count++;
         if (node->count > allocated) {
             allocated <<= 1;
@@ -1126,7 +1150,6 @@ void asm_function(AsmState *st, AstNode *node) {
     fprintf(st->out, "%s:\n", name->data.string);
     fputs("\tpushq\t%rbp\n", st->out);
     fputs("\tmovq\t%rsp, %rbp\n", st->out);
-    AstNode *params = node->data.children + 1;
     AstNode *block = node->data.children + 2;
     assert(block->kind == K_BLOCK);
     for (unsigned int i = 0; i < block->count; ++i) {
