@@ -1126,7 +1126,8 @@ void asm_function(AsmState *st, AstNode *node) {
     fprintf(st->out, "%s:\n", name->data.string);
     fputs("\tpushq\t%rbp\n", st->out);
     fputs("\tmovq\t%rsp, %rbp\n", st->out);
-    AstNode *block = node->data.children + 1;
+    AstNode *params = node->data.children + 1;
+    AstNode *block = node->data.children + 2;
     assert(block->kind == K_BLOCK);
     for (unsigned int i = 0; i < block->count; ++i) {
         asm_statement(st, block->data.children + i);
