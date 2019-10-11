@@ -2,7 +2,7 @@
 int main ( ) { return 10 - 1 - 2 - 3 - 4 ; }
 */
 /*AST
-(top-level (function main (params-def) (block (return (top-expr (- (- (- (- 10 1) 2) 3) 4))))))
+(top-level (function main (params) (block (return (top-expr (- (- (- (- 10 1) 2) 3) 4))))))
 */
 //RET 0
 int main() {

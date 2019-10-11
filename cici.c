@@ -283,8 +283,8 @@ typedef enum AstKind {
     K_TOP_LEVEL,
     // Represents a function with a body
     K_FUNCTION,
-    // Represents the inputs to a function definitions
-    K_PARAM_DEFS,
+    // Represents the inputs to a function call or definition
+    K_PARAMS,
     // Represents a function call
     K_CALL,
     // Represents a block containing a series of statements
@@ -370,8 +370,8 @@ void ast_print_rec(AstNode *node, FILE *fp) {
     case K_FUNCTION:
         name = "function";
         break;
-    case K_PARAM_DEFS:
-        name = "params-def";
+    case K_PARAMS:
+        name = "params";
         break;
     case K_CALL:
         name = "call";
@@ -826,7 +826,7 @@ void parse_param_definition(ParseState *st, AstNode *node) {
 void parse_params_def(ParseState *st, AstNode *node) {
     parse_consume(st, T_LEFT_PARENS,
                   "Expected `(` to start function param definition");
-    node->kind = K_PARAM_DEFS;
+    node->kind = K_PARAMS;
     node->count = 0;
     unsigned int allocated = BASE_CHILDREN_SIZE;
     node->data.children = malloc(allocated * sizeof(AstNode));

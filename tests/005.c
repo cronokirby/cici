@@ -4,7 +4,7 @@ int main ( ) { return ( 1 * 1 ) + ( 1 * 1 ) + ( 1 * 1 ) + ( 1 * 1 ) + ( 1 * 1 )
 */
 /*AST
 (top-level
-    (function main (params-def) (block
+    (function main (params) (block
         (return (top-expr
             (+ (+ (+ (+ (+ (+ (+ (* 1 1) (* 1 1)) (* 1 1)) (* 1 1)) (* 1 1)) (* 1 1)) (* 1 1)) (* 1 1)))))))
 */

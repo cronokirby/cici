@@ -8,7 +8,7 @@ int main ( ) {
 */
 /*AST
 (top-level
-(function main (params-def) (block
+(function main (params) (block
     (declaration (declare x) (declare y) (declare z))
     (expr-statement (top-expr (= z (= x 2)) (= y 3)))
     (expr-statement (top-expr 1 2 3))
