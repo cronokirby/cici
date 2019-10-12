@@ -10,6 +10,8 @@ a.pir
 a.s
 # The program that we make from the assembly
 a.out
+# the program we often use for testing stuff
+test.c
 
 # editor stuff
 .vscode/
