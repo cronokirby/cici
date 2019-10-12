@@ -925,7 +925,6 @@ typedef struct AsmState {
 AsmState *asm_init(FILE *out) {
     AsmState *st = malloc(sizeof(AsmState));
     st->out = out;
-    asm_reset_storage(st);
     st->allocated_stack = 0;
     st->storage_count = 0;
     st->storage_size = 4 * sizeof(Storage);
@@ -941,7 +940,7 @@ int asm_offset_of(AsmState *st, char *identifier) {
             return target->offset;
         }
     }
-    return 1;
+    return -1;
 }
 
 void asm_reset_storage(AsmState *st) {
@@ -952,7 +951,7 @@ void asm_reset_storage(AsmState *st) {
 // We assume this is an int that needs 4 bytes
 void asm_create_storage(AsmState *st, char *identifier) {
     // There is storage already
-    if (asm_offset_of(st, identifier) <= 0) {
+    if (asm_offset_of(st, identifier) >= 0) {
         puts("Error:");
         printf("Attempting to declare identifier %s twice\n", identifier);
         exit(-1);
@@ -964,33 +963,34 @@ void asm_create_storage(AsmState *st, char *identifier) {
     }
     st->storages[index].identifier = identifier;
     if (4 + (index << 2) > st->allocated_stack) {
-        fputs("\tsubq\t$16, %rsp\n", st->out);
+        fputs("\tsub rsp, 16\n", st->out);
         st->allocated_stack += 16;
     }
-    // We need to add an extra shift, because even though the stack grows down
-    st->storages[index].offset = -4 * (index + 1);
+    // We need to add an extra shift, because even though the stack grows down we write up
+    st->storages[index].offset = (index + 1) << 2;
 }
 
 char *asm_reg_for_nth_function_param(bool is64, int n) {
-    char *reg;
     switch (n) {
     case 0:
-        return is64 ? "%rdi" : "%edi";
+        return is64 ? "rdi" : "edi";
     case 1:
-        return is64 ? "%rsi" : "%esi";
+        return is64 ? "rsi" : "esi";
     case 2:
-        return is64 ? "%rdx" : "%edx";
+        return is64 ? "rdx" : "edx";
     case 3:
-        return is64 ? "%rcx" : "%ecx";
+        return is64 ? "rcx" : "ecx";
     case 4:
-        return is64 ? "%r8" : "%r8d";
+        return is64 ? "r8" : "r8d";
     case 5:
-        return is64 ? "%r9" : "%r9d";
+        return is64 ? "r9" : "r9d";
     default:
         puts("Function has more than 6 parameters");
         exit(-1);
     }
 }
+
+void asm_expr(AsmState *st, AstNode *node);
 
 void asm_call(AsmState *st, AstNode *node) {
     assert(node->kind == K_CALL);
@@ -1001,26 +1001,26 @@ void asm_call(AsmState *st, AstNode *node) {
     for (unsigned int i = 0; i < params->count; ++i) {
         asm_expr(st, params->data.children + i);
         char *reg = asm_reg_for_nth_function_param(true, i);
-        fprintf(st->out, "\tpopq\t%s\n", reg);
+        fprintf(st->out, "\tpop\t%s\n", reg);
     }
     fprintf(st->out, "\tcall\t%s\n", name->data.string);
-    fputs("\tpushq\t%rax\n", st->out);
+    fputs("\tpush\trax\n", st->out);
 }
 
 void asm_expr(AsmState *st, AstNode *node) {
     switch (node->kind) {
     case K_NUMBER:
-        fprintf(st->out, "\tpushq\t$%d\n", node->data.num);
+        fprintf(st->out, "\tpush\t%d\n", node->data.num);
         break;
     case K_IDENTIFIER: {
         char *ident = node->data.string;
         int offset = asm_offset_of(st, ident);
-        if (offset > 0) {
+        if (offset < 0) {
             printf("Error:\nUse of undeclared identifier %s\n", ident);
             exit(-1);
         }
-        fprintf(st->out, "\tmovl\t%d(%%rbp), %%eax\n", offset);
-        fputs("\tpushq\t%rax\n", st->out);
+        fprintf(st->out, "\tmov\teax, DWORD PTR [rbp - %d]\n", offset);
+        fputs("\tpush\trax\n", st->out);
     } break;
     case K_CALL:
         asm_call(st, node);
@@ -1029,99 +1029,99 @@ void asm_expr(AsmState *st, AstNode *node) {
         asm_expr(st, node->data.children + 1);
         char *ident = node->data.children->data.string;
         int offset = asm_offset_of(st, ident);
-        if (offset > 0) {
+        if (offset < 0) {
             printf("Error:\nAssignment to undeclared identifier %s\n", ident);
             exit(-1);
         }
         // We can just keep the top of the stack as our eventual return
-        fputs("\tmovq\t(%rsp), %rax\n", st->out);
-        fprintf(st->out, "\tmovl\t%%eax, %d(%%rbp)\n", offset);
+        fputs("\tmov\trax, QWORD PTR [rsp]\n", st->out);
+        fprintf(st->out, "\tmov\tDWORD PTR [rbp - %d], eax\n", offset);
         break;
     case K_ADD:
         asm_expr(st, node->data.children);
         asm_expr(st, node->data.children + 1);
-        fputs("\tpopq\t%rbx\n", st->out);
-        fputs("\tpopq\t%rax\n", st->out);
-        fputs("\taddl\t%ebx, %eax\n", st->out);
-        fputs("\tpushq\t%rax\n", st->out);
+        fputs("\tpop\trbx\n", st->out);
+        fputs("\tpop\trax\n", st->out);
+        fputs("\tadd\teax, ebx\n", st->out);
+        fputs("\tpush\trax\n", st->out);
         break;
     case K_SUB:
         asm_expr(st, node->data.children);
         asm_expr(st, node->data.children + 1);
-        fputs("\tpopq\t%rbx\n", st->out);
-        fputs("\tpopq\t%rax\n", st->out);
-        fputs("\tsubl\t%ebx, %eax\n", st->out);
-        fputs("\tpushq\t%rax\n", st->out);
+        fputs("\tpop\trbx\n", st->out);
+        fputs("\tpop\trax\n", st->out);
+        fputs("\tsub\teax, ebx\n", st->out);
+        fputs("\tpush\trax\n", st->out);
         break;
     case K_MUL:
         asm_expr(st, node->data.children);
         asm_expr(st, node->data.children + 1);
-        fputs("\tpopq\t%rbx\n", st->out);
-        fputs("\tpopq\t%rax\n", st->out);
-        fputs("\timull\t%ebx, %eax\n", st->out);
-        fputs("\tpushq\t%rax\n", st->out);
+        fputs("\tpop\trbx\n", st->out);
+        fputs("\tpop\trax\n", st->out);
+        fputs("\timul\teax, ebx\n", st->out);
+        fputs("\tpush\trax\n", st->out);
         break;
     case K_DIV:
         asm_expr(st, node->data.children);
         asm_expr(st, node->data.children + 1);
-        fputs("\tpopq\t%rbx\n", st->out);
-        fputs("\tpopq\t%rax\n", st->out);
-        fputs("\tcltd\n", st->out);
-        fputs("\tidivl\t%ebx\n", st->out);
-        fputs("\tpushq\t%rax\n", st->out);
+        fputs("\tpop\trbx\n", st->out);
+        fputs("\tpop\trax\n", st->out);
+        fputs("\tcdq\n", st->out);
+        fputs("\tidiv\tebx\n", st->out);
+        fputs("\tpush\trax\n", st->out);
         break;
     case K_MOD:
         asm_expr(st, node->data.children);
         asm_expr(st, node->data.children + 1);
-        fputs("\tpopq\t%rbx\n", st->out);
-        fputs("\tpopq\t%rax\n", st->out);
-        fputs("\tcltd\n", st->out);
-        fputs("\tidivl\t%ebx\n", st->out);
-        fputs("\tpushq\t%rdx\n", st->out);
+        fputs("\tpop\trbx\n", st->out);
+        fputs("\tpop\trax\n", st->out);
+        fputs("\tcdq\n", st->out);
+        fputs("\tidiv\tebx\n", st->out);
+        fputs("\tpush\trdx\n", st->out);
         break;
     case K_BIT_AND:
         asm_expr(st, node->data.children);
         asm_expr(st, node->data.children + 1);
-        fputs("\tpopq\t%rbx\n", st->out);
-        fputs("\tpopq\t%rax\n", st->out);
-        fputs("\tand\t%ebx, %eax\n", st->out);
-        fputs("\tpushq\t%rax\n", st->out);
+        fputs("\tpop\trbx\n", st->out);
+        fputs("\tpop\trax\n", st->out);
+        fputs("\tand\teax, ebx\n", st->out);
+        fputs("\tpush\trax\n", st->out);
         break;
     case K_BIT_OR:
         asm_expr(st, node->data.children);
         asm_expr(st, node->data.children + 1);
-        fputs("\tpopq\t%rbx\n", st->out);
-        fputs("\tpopq\t%rax\n", st->out);
-        fputs("\tor\t%ebx, %eax\n", st->out);
-        fputs("\tpushq\t%rax\n", st->out);
+        fputs("\tpop\trbx\n", st->out);
+        fputs("\tpop\trax\n", st->out);
+        fputs("\tor\teax, ebx\n", st->out);
+        fputs("\tpush\trax\n", st->out);
         break;
     case K_BIT_XOR:
         asm_expr(st, node->data.children);
         asm_expr(st, node->data.children + 1);
-        fputs("\tpopq\t%rbx\n", st->out);
-        fputs("\tpopq\t%rax\n", st->out);
-        fputs("\txor\t%ebx, %eax\n", st->out);
-        fputs("\tpushq\t%rax\n", st->out);
+        fputs("\tpop\trbx\n", st->out);
+        fputs("\tpop\trax\n", st->out);
+        fputs("\txor\teax, ebx\n", st->out);
+        fputs("\tpush\trax\n", st->out);
         break;
     case K_BIT_NOT:
         asm_expr(st, node->data.children);
-        fputs("\tpopq\t%rax\n", st->out);
-        fputs("\tnot\t%eax\n", st->out);
-        fputs("\tpushq\t%rax\n", st->out);
+        fputs("\tpop\trax\n", st->out);
+        fputs("\tnot\teax\n", st->out);
+        fputs("\tpush\trax\n", st->out);
         break;
     case K_NEGATE:
         asm_expr(st, node->data.children);
-        fputs("\tpopq\t%rax\n", st->out);
-        fputs("\tneg\t%eax\n", st->out);
-        fputs("\tpushq\t%rax\n", st->out);
+        fputs("\tpop\trax\n", st->out);
+        fputs("\tneg\teax\n", st->out);
+        fputs("\tpush\trax\n", st->out);
         break;
     case K_LOGICAL_NOT:
         asm_expr(st, node->data.children);
-        fputs("\tpopq\t%rax\n", st->out);
-        fputs("\ttestl\t%eax, %eax\n", st->out);
-        fputs("\tsete\t%al\n", st->out);
-        fputs("\tmovzbl\t%al, %eax\n", st->out);
-        fputs("\tpushq\t%rax\n", st->out);
+        fputs("\tpop\trax\n", st->out);
+        fputs("\ttest\teax, eax\n", st->out);
+        fputs("\tsete\tal\n", st->out);
+        fputs("\tmovzx\teax, al\n", st->out);
+        fputs("\tpush\trax\n", st->out);
         break;
     default:
         break;
@@ -1136,13 +1136,13 @@ void asm_declare(AsmState *st, AstNode *node) {
         char *identifier = node->data.children[0].data.string;
         asm_create_storage(st, identifier);
         asm_expr(st, node->data.children + 1);
-        fputs("\tpopq\t%rax\n", st->out);
+        fputs("\tpop\trax\n", st->out);
         int offset = asm_offset_of(st, identifier);
-        if (offset > 0) {
-            printf("Error:\nStack offset %d > 0\n", offset);
+        if (offset < 0) {
+            printf("Error:\nStack offset %d < 0\n", offset);
             exit(-1);
         }
-        fprintf(st->out, "\tmovl\t%%eax, %d(%%rbp)\n", offset);
+        fprintf(st->out, "\tmov\tDWORD PTR [rbp - %d], eax\n", offset);
     } else {
         panic("Tried to process declaration, but kind was invalid");
     }
@@ -1155,21 +1155,21 @@ void asm_top_expr(AsmState *st, AstNode *node) {
     }
     // This will ignore all of the extra stack items we pushed
     if (node->count > 1) {
-        fprintf(st->out, "\taddq\t$%d, %%rsp\n", (node->count - 1) << 3);
+        fprintf(st->out, "\tadd\trsp, %d\n", (node->count - 1) << 3);
     }
 }
 
 void asm_statement(AsmState *st, AstNode *node) {
     if (node->kind == K_RETURN) {
         asm_top_expr(st, node->data.children);
-        fputs("\tpopq\t%rax\n", st->out);
-        fputs("\tmovq\t%rbp, %rsp\n", st->out);
-        fputs("\tpopq\t%rbp\n", st->out);
+        fputs("\tpop\trax\n", st->out);
+        fputs("\tmov\trsp, rbp\n", st->out);
+        fputs("\tpop\trbp\n", st->out);
         fputs("\tret\n", st->out);
     } else if (node->kind == K_EXPR_STATEMENT) {
         if (node->count == 1) {
             asm_top_expr(st, node->data.children);
-            fputs("\taddq\t$8, %rsp\n", st->out);
+            fputs("\tadd\trsp, 8\n", st->out);
         }
     } else if (node->kind == K_DECLARATION) {
         for (unsigned int i = 0; i < node->count; ++i) {
@@ -1186,8 +1186,8 @@ void asm_function(AsmState *st, AstNode *node) {
     assert(name->kind == K_IDENTIFIER);
     fprintf(st->out, "\t.globl %s\n", name->data.string);
     fprintf(st->out, "%s:\n", name->data.string);
-    fputs("\tpushq\t%rbp\n", st->out);
-    fputs("\tmovq\t%rsp, %rbp\n", st->out);
+    fputs("\tpush\trbp\n", st->out);
+    fputs("\tmov\trbp, rsp\n", st->out);
     AstNode *params = node->data.children + 1;
     assert(params->kind == K_PARAMS);
     for (unsigned int i = 0; i < params->count; ++i) {
@@ -1195,12 +1195,12 @@ void asm_function(AsmState *st, AstNode *node) {
         char *param_id = params->data.children[i].data.string;
         asm_create_storage(st, param_id);
         int offset = asm_offset_of(st, param_id);
-        if (offset > 0) {
-            printf("Error:\nStack offset %d > 0\n", offset);
+        if (offset < 0) {
+            printf("Error:\nStack offset %d < 0\n", offset);
             exit(-1);
         }
         char *reg = asm_reg_for_nth_function_param(false, i);
-        fprintf(st->out, "\tmovl\t%s, %d(%%rbp)\n", reg, offset);
+        fprintf(st->out, "\tmov\tDWORD PTR [rbp - %d], %s\n", offset, reg);
     }
     AstNode *block = node->data.children + 2;
     assert(block->kind == K_BLOCK);
@@ -1211,6 +1211,7 @@ void asm_function(AsmState *st, AstNode *node) {
 }
 
 void asm_gen(AsmState *st, AstNode *root) {
+    fputs("\t.intel_syntax noprefix\n", st->out);
     assert(root->kind == K_TOP_LEVEL);
     for (unsigned int i = 0; i < root->count; ++i) {
         asm_function(st, root->data.children + i);
