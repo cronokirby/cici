@@ -1309,10 +1309,10 @@ void asm_statement(AsmState *st, AstNode *node) {
         } else {
             asm_statement(st, inside);
         }
+        fprintf(st->out, ".%s%d:\n", st->function_name, label);
         if (node->count == 3) {
             asm_statement(st, node->data.children + 2);
         }
-        fprintf(st->out, ".%s%d:\n", st->function_name, label);
     } else {
         panic("Unable to handle statement type");
     }
