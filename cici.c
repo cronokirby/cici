@@ -1087,6 +1087,26 @@ void asm_expr(AsmState *st, AstNode *node) {
         fputs("\tmov\trax, QWORD PTR [rsp]\n", st->out);
         fprintf(st->out, "\tmov\tDWORD PTR [rbp - %d], eax\n", offset);
         break;
+    case K_EQUALS:
+        asm_expr(st, node->data.children);
+        asm_expr(st, node->data.children + 1);
+        fputs("\tpop\trbx\n", st->out);
+        fputs("\tpop\trax\n", st->out);
+        fputs("\tcmp\trax, rbx\n", st->out);
+        fputs("\tsete\tal\n", st->out);
+        fputs("\tmovzx\teax, al\n", st->out);
+        fputs("\tpush\trax\n", st->out);
+        break;
+    case K_NOT_EQUALS:
+        asm_expr(st, node->data.children);
+        asm_expr(st, node->data.children + 1);
+        fputs("\tpop\trbx\n", st->out);
+        fputs("\tpop\trax\n", st->out);
+        fputs("\tcmp\trax, rbx\n", st->out);
+        fputs("\tsetne\tal\n", st->out);
+        fputs("\tmovzx\teax, al\n", st->out);
+        fputs("\tpush\trax\n", st->out);
+        break;
     case K_ADD:
         asm_expr(st, node->data.children);
         asm_expr(st, node->data.children + 1);
