@@ -42,6 +42,9 @@ typedef enum TokenType {
     T_AMPERSAND,
     T_VERT_BAR,
     T_CARET,
+    // Double character tokens
+    T_EQUALS_EQUALS,
+    T_EXCLAMATION_EQUALS,
     // Keywords
     T_INT,
     T_RETURN,
@@ -123,6 +126,12 @@ void token_print(Token t, FILE *fp) {
     case T_AMPERSAND:
         fputs("&\n", fp);
         break;
+    case T_EQUALS_EQUALS:
+        fputs("==\n", fp);
+        break;
+    case T_EXCLAMATION_EQUALS:
+        fputs("!=\n", fp);
+        break;
     case T_INT:
         fputs("int\n", fp);
         break;
@@ -183,7 +192,13 @@ Token lex_next(LexState *st) {
             token.type = T_COMMA;
         } else if (next == '=') {
             st->index++;
-            token.type = T_EQUALS;
+            next = st->program[st->index];
+            if (next == '=') {
+                st->index++;
+                token.type = T_EQUALS_EQUALS;
+            } else {
+                token.type = T_EQUALS;
+            }
         } else if (next == '+') {
             st->index++;
             token.type = T_PLUS;
@@ -224,7 +239,13 @@ Token lex_next(LexState *st) {
             token.type = T_PERCENT;
         } else if (next == '!') {
             st->index++;
-            token.type = T_EXCLAMATION;
+            next = st->program[st->index];
+            if (next == '=') {
+                st->index++;
+                token.type = T_EXCLAMATION_EQUALS;
+            } else {
+                token.type = T_EXCLAMATION;
+            }
         } else if (next == '~') {
             st->index++;
             token.type = T_TILDE;
@@ -303,6 +324,10 @@ typedef enum AstKind {
     K_TOP_EXPR,
     // x = y
     K_ASSIGN,
+    // x == y
+    K_EQUALS,
+    // x != y
+    K_NOT_EQUALS,
     // a + b
     K_ADD,
     // a - b
@@ -417,6 +442,12 @@ void ast_print_rec(AstNode *node, FILE *fp) {
         break;
     case K_ASSIGN:
         name = "=";
+        break;
+    case K_EQUALS:
+        name = "==";
+        break;
+    case K_NOT_EQUALS:
+        name = "!=";
         break;
     case K_ADD:
         name = "+";
@@ -658,15 +689,33 @@ void parse_add(ParseState *st, AstNode *node) {
     }
 }
 
-void parse_and(ParseState *st, AstNode *node) {
+void parse_equality(ParseState *st, AstNode *node) {
     parse_add(st, node);
+    TokenType operators[] = {T_EQUALS_EQUALS, T_EXCLAMATION_EQUALS};
+    while (parse_match(st, operators, 2)) {
+        AstNode *children = malloc(2 * sizeof(AstNode));
+        children[0] = *node;
+        TokenType matched = st->prev.type;
+        if (matched == T_EQUALS_EQUALS) {
+            node->kind = K_EQUALS;
+        } else {
+            node->kind = K_NOT_EQUALS;
+        }
+        node->count = 2;
+        parse_add(st, children + 1);
+        node->data.children = children;
+    }
+}
+
+void parse_and(ParseState *st, AstNode *node) {
+    parse_equality(st, node);
     while (parse_check(st, T_AMPERSAND)) {
         parse_advance(st);
         AstNode *children = malloc(2 * sizeof(AstNode));
         children[0] = *node;
         node->kind = K_BIT_AND;
         node->count = 2;
-        parse_add(st, children + 1);
+        parse_equality(st, children + 1);
         node->data.children = children;
     }
 }
@@ -966,7 +1015,8 @@ void asm_create_storage(AsmState *st, char *identifier) {
         fputs("\tsub rsp, 16\n", st->out);
         st->allocated_stack += 16;
     }
-    // We need to add an extra shift, because even though the stack grows down we write up
+    // We need to add an extra shift, because even though the stack grows down
+    // we write up
     st->storages[index].offset = (index + 1) << 2;
 }
 
