@@ -49,6 +49,7 @@ typedef enum TokenType {
     T_INT,
     T_RETURN,
     T_IF,
+    T_ELSE,
     // Litteral
     T_LITT_NUMBER,
     T_IDENTIFIER,
@@ -141,6 +142,9 @@ void token_print(Token t, FILE *fp) {
         break;
     case T_IF:
         fputs("if\n", fp);
+        break;
+    case T_ELSE:
+        fputs("else\n", fp);
         break;
     case T_LITT_NUMBER:
         fprintf(fp, "%d\n", t.data.litt);
@@ -282,6 +286,8 @@ Token lex_next(LexState *st) {
                 token.type = T_INT;
             } else if (strcmp(buf, "if") == 0) {
                 token.type = T_IF;
+            } else if (strcmp(buf, "else") == 0) {
+                token.type = T_ELSE;
             } else {
                 token.type = T_IDENTIFIER;
                 token.data.string = buf;
@@ -846,7 +852,7 @@ void parse_declaration(ParseState *st, AstNode *node) {
     }
 }
 
-void parse_block(ParseState *st, AstNode *node);
+void parse_block_or_statement(ParseState *st, AstNode *node);
 
 void *parse_statement(ParseState *st, AstNode *node) {
     if (parse_check(st, T_RETURN)) {
@@ -880,10 +886,12 @@ void *parse_statement(ParseState *st, AstNode *node) {
         node->data.children = malloc(2 * sizeof(AstNode));
         parse_assignment_expr(st, node->data.children);
         parse_consume(st, T_RIGHT_PARENS, "Expected `)` to close `(`");
-        if (parse_check(st, T_LEFT_BRACE)) {
-            parse_block(st, node->data.children + 1);
-        } else {
-            parse_statement(st, node->data.children + 1);
+        parse_block_or_statement(st, node->data.children + 1);
+        if (parse_check(st, T_ELSE)) {
+            parse_advance(st);
+            node->count = 3;
+            node->data.children = realloc(node->data.children, 3 * sizeof(AstNode));
+            parse_block_or_statement(st, node->data.children + 2);
         }
     } else {
         node->kind = K_EXPR_STATEMENT;
@@ -913,6 +921,14 @@ void parse_block(ParseState *st, AstNode *node) {
         panic("Unexpected EOF");
     }
     parse_advance(st);
+}
+
+void parse_block_or_statement(ParseState *st, AstNode *node) {
+    if (parse_check(st, T_LEFT_BRACE)) {
+        parse_block(st, node);
+    } else {
+        parse_statement(st, node);
+    }
 }
 
 void parse_param_definition(ParseState *st, AstNode *node) {
@@ -1292,6 +1308,9 @@ void asm_statement(AsmState *st, AstNode *node) {
             }
         } else {
             asm_statement(st, inside);
+        }
+        if (node->count == 3) {
+            asm_statement(st, node->data.children + 2);
         }
         fprintf(st->out, ".%s%d:\n", st->function_name, label);
     } else {
