@@ -48,6 +48,7 @@ typedef enum TokenType {
     // Keywords
     T_INT,
     T_RETURN,
+    T_IF,
     // Litteral
     T_LITT_NUMBER,
     T_IDENTIFIER,
@@ -137,6 +138,9 @@ void token_print(Token t, FILE *fp) {
         break;
     case T_RETURN:
         fputs("return\n", fp);
+        break;
+    case T_IF:
+        fputs("if\n", fp);
         break;
     case T_LITT_NUMBER:
         fprintf(fp, "%d\n", t.data.litt);
@@ -276,6 +280,8 @@ Token lex_next(LexState *st) {
                 token.type = T_RETURN;
             } else if (strcmp(buf, "int") == 0) {
                 token.type = T_INT;
+            } else if (strcmp(buf, "if") == 0) {
+                token.type = T_IF;
             } else {
                 token.type = T_IDENTIFIER;
                 token.data.string = buf;
@@ -316,6 +322,8 @@ typedef enum AstKind {
     K_DECLARATION,
     // Represents a return statement e.g. `return 1;`
     K_RETURN,
+    // Represents a return statement e.g. `if (x) return 2;`
+    K_IF,
     // Represents a declaration with initialization
     K_INIT_DECLARATION,
     // Represents a declaration without initialization
@@ -412,6 +420,9 @@ void ast_print_rec(AstNode *node, FILE *fp) {
         break;
     case K_RETURN:
         name = "return";
+        break;
+    case K_IF:
+        name = "if";
         break;
     case K_NO_INIT_DECLARATION:
         name = "declare";
@@ -835,11 +846,14 @@ void parse_declaration(ParseState *st, AstNode *node) {
     }
 }
 
+void parse_block(ParseState *st, AstNode *node);
+
 void *parse_statement(ParseState *st, AstNode *node) {
     if (parse_check(st, T_RETURN)) {
         parse_advance(st);
         node->kind = K_RETURN;
         parse_top_expr_opt(st, node);
+        parse_consume(st, T_SEMICOLON, "Expected semicolon to end statement");
     } else if (parse_check(st, T_INT)) {
         parse_advance(st);
         node->kind = K_DECLARATION;
@@ -857,11 +871,25 @@ void *parse_statement(ParseState *st, AstNode *node) {
             }
             parse_declaration(st, node->data.children + offset);
         }
+        parse_consume(st, T_SEMICOLON, "Expected semicolon to end statement");
+    } else if (parse_check(st, T_IF)) {
+        parse_advance(st);
+        parse_consume(st, T_LEFT_PARENS, "Expected `(` after `if`");
+        node->kind = K_IF;
+        node->count = 2;
+        node->data.children = malloc(2 * sizeof(AstNode));
+        parse_assignment_expr(st, node->data.children);
+        parse_consume(st, T_RIGHT_PARENS, "Expected `)` to close `(`");
+        if (parse_check(st, T_LEFT_BRACE)) {
+            parse_block(st, node->data.children + 1);
+        } else {
+            parse_statement(st, node->data.children + 1);
+        }
     } else {
         node->kind = K_EXPR_STATEMENT;
         parse_top_expr_opt(st, node);
+        parse_consume(st, T_SEMICOLON, "Expected semicolon to end statement");
     }
-    parse_consume(st, T_SEMICOLON, "Expected semicolon to end statement");
     return node;
 }
 
