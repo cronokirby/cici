@@ -995,6 +995,10 @@ typedef struct AsmState {
     size_t storage_size;
     // How many bytes we've allocated on the stack so far
     int allocated_stack;
+    // The name of the current function
+    char *function_name;
+    // The current label index
+    int label_index;
     // The stream we're generating to
     FILE *out;
 } AsmState;
@@ -1020,9 +1024,11 @@ int asm_offset_of(AsmState *st, char *identifier) {
     return -1;
 }
 
-void asm_reset_storage(AsmState *st) {
+void asm_new_function_state(AsmState *st, char* function_name) {
     st->allocated_stack = 0;
     st->storage_count = 0;
+    st->function_name = function_name;
+    st->label_index = 0;
 }
 
 // We assume this is an int that needs 4 bytes
@@ -1273,6 +1279,21 @@ void asm_statement(AsmState *st, AstNode *node) {
         for (unsigned int i = 0; i < node->count; ++i) {
             asm_declare(st, node->data.children + i);
         }
+    } else if (node->kind == K_IF) {
+        int label = st->label_index++;
+        asm_expr(st, node->data.children);
+        fputs("\tpop\trax\n", st->out);
+        fputs("\ttest\teax, eax\n", st->out);
+        fprintf(st->out, "\tje\t.%s%d\n", st->function_name, label);
+        AstNode* inside = node->data.children + 1;
+        if (inside->kind == K_BLOCK) {
+            for (unsigned int i = 0; i < inside->count; ++i) {
+                asm_statement(st, inside->data.children + i);
+            }
+        } else {
+            asm_statement(st, inside);
+        }
+        fprintf(st->out, ".%s%d:\n", st->function_name, label);
     } else {
         panic("Unable to handle statement type");
     }
@@ -1282,6 +1303,7 @@ void asm_function(AsmState *st, AstNode *node) {
     assert(node->kind == K_FUNCTION);
     AstNode *name = node->data.children;
     assert(name->kind == K_IDENTIFIER);
+    asm_new_function_state(st, name->data.string);
     fprintf(st->out, "\t.globl %s\n", name->data.string);
     fprintf(st->out, "%s:\n", name->data.string);
     fputs("\tpush\trbp\n", st->out);
@@ -1305,7 +1327,6 @@ void asm_function(AsmState *st, AstNode *node) {
     for (unsigned int i = 0; i < block->count; ++i) {
         asm_statement(st, block->data.children + i);
     }
-    asm_reset_storage(st);
 }
 
 void asm_gen(AsmState *st, AstNode *root) {
