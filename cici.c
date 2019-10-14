@@ -1024,7 +1024,7 @@ int asm_offset_of(AsmState *st, char *identifier) {
     return -1;
 }
 
-void asm_new_function_state(AsmState *st, char* function_name) {
+void asm_new_function_state(AsmState *st, char *function_name) {
     st->allocated_stack = 0;
     st->storage_count = 0;
     st->function_name = function_name;
@@ -1285,7 +1285,7 @@ void asm_statement(AsmState *st, AstNode *node) {
         fputs("\tpop\trax\n", st->out);
         fputs("\ttest\teax, eax\n", st->out);
         fprintf(st->out, "\tje\t.%s%d\n", st->function_name, label);
-        AstNode* inside = node->data.children + 1;
+        AstNode *inside = node->data.children + 1;
         if (inside->kind == K_BLOCK) {
             for (unsigned int i = 0; i < inside->count; ++i) {
                 asm_statement(st, inside->data.children + i);
