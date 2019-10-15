@@ -890,7 +890,8 @@ void *parse_statement(ParseState *st, AstNode *node) {
         if (parse_check(st, T_ELSE)) {
             parse_advance(st);
             node->count = 3;
-            node->data.children = realloc(node->data.children, 3 * sizeof(AstNode));
+            node->data.children =
+                realloc(node->data.children, 3 * sizeof(AstNode));
             parse_block_or_statement(st, node->data.children + 2);
         }
     } else {
@@ -994,23 +995,105 @@ AstNode *parse_top_level(ParseState *st) {
     return node;
 }
 
-// Holds information about the storage for a given identifier
-typedef struct Storage {
-    // The identifier this storage belongs to
-    char *identifier;
-    // The offset (negative) from the top of the stack
-    int offset;
-} Storage;
+typedef struct Identifiers {
+    // An array of strings holding our identifiers
+    char **identifiers;
+    // The number of slots we've filled
+    unsigned int count;
+    // The number of slots we have available
+    unsigned int capacity;
+} Identifiers;
+
+void idents_init(Identifiers *idents) {
+    idents->count = 0;
+    idents->capacity = 4;
+    idents->identifiers = malloc(idents->capacity * sizeof(char *));
+}
+
+void idents_insert(Identifiers *idents, char *new) {
+    if (idents->count == idents->capacity) {
+        idents->capacity <<= 1;
+        idents->identifiers =
+            realloc(idents->identifiers, idents->capacity * sizeof(char *));
+    }
+    idents->identifiers[idents->count++] = new;
+}
+
+// Returns < 0 for negative indices
+unsigned int idents_index_of(Identifiers *idents, char *target) {
+    for (unsigned int i = 0; i < idents->count; ++i) {
+        if (strcmp(idents->identifiers[i], target) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+typedef struct Scope {
+    // The set of identifiers created inside this scope
+    Identifiers identifiers;
+    // The number of bytes of stack we've allocated in this scope
+    int allocated_stack;
+    // The initial offset for this scope
+    int initial_offset;
+} Scope;
+
+typedef struct Scopes {
+    // The stack of scopes
+    Scope *scopes;
+    // The number of slots filled
+    unsigned int count;
+    // The number of slots available
+    unsigned int capacity;
+} Scopes;
+
+void scopes_init(Scopes *new) {
+    new->count = 0;
+    new->capacity = 2;
+    new->scopes = malloc(new->capacity * sizeof(Scope));
+}
+
+// Enter a new scope
+void scopes_enter(Scopes *scopes) {
+    if (scopes->count == scopes->capacity) {
+        scopes->capacity <<= 1;
+        scopes->scopes =
+            realloc(scopes->scopes, scopes->capacity * sizeof(Scope));
+    }
+    Scope *new = scopes->scopes + scopes->count++;
+    // We don't have an old scope to look at
+    if (scopes->count == 1) {
+        // The first will take stack bytes [-4,0[
+        new->initial_offset = 4;
+    } else {
+        Scope *old = new - 1;
+        // 4 bytes for each identifier created in the previous scope
+        int previous_var_size = old->identifiers.count << 2;
+        new->initial_offset = old->initial_offset + previous_var_size;
+    }
+    idents_init(&new->identifiers);
+    new->allocated_stack = 0;
+}
+
+void scopes_exit(Scopes *scopes) {
+    --scopes->count;
+    free(scopes->scopes[scopes->count].identifiers.identifiers);
+}
+
+// Returns < 0 if no identifier found
+int scopes_offset_of(Scopes *scopes, char *identifier) {
+    for (int i = scopes->count - 1; i >= 0; --i) {
+        Scope *scope = scopes->scopes + i;
+        int index = idents_index_of(&scope->identifiers, identifier);
+        if (index >= 0) {
+            return scope->initial_offset + (index << 2);
+        }
+    }
+    return -1;
+}
 
 typedef struct AsmState {
-    // A collection of storage information
-    Storage *storages;
-    // The number of storage objects we've allocated
-    int storage_count;
-    // The size of this storage
-    size_t storage_size;
-    // How many bytes we've allocated on the stack so far
-    int allocated_stack;
+    Scopes scopes;
     // The name of the current function
     char *function_name;
     // The current label index
@@ -1022,52 +1105,32 @@ typedef struct AsmState {
 AsmState *asm_init(FILE *out) {
     AsmState *st = malloc(sizeof(AsmState));
     st->out = out;
-    st->allocated_stack = 0;
-    st->storage_count = 0;
-    st->storage_size = 4 * sizeof(Storage);
-    st->storages = malloc(st->storage_size);
+    scopes_init(&st->scopes);
     return st;
 }
 
-// This will be > 0 if no offset was found
-int asm_offset_of(AsmState *st, char *identifier) {
-    for (int i = 0; i < st->storage_count; ++i) {
-        Storage *target = st->storages + i;
-        if (strcmp(target->identifier, identifier) == 0) {
-            return target->offset;
-        }
-    }
-    return -1;
-}
-
-void asm_new_function_state(AsmState *st, char *function_name) {
-    st->allocated_stack = 0;
-    st->storage_count = 0;
+void asm_enter_function(AsmState *st, char *function_name) {
     st->function_name = function_name;
     st->label_index = 0;
+    scopes_enter(&st->scopes);
 }
 
-// We assume this is an int that needs 4 bytes
-void asm_create_storage(AsmState *st, char *identifier) {
-    // There is storage already
-    if (asm_offset_of(st, identifier) >= 0) {
+void asm_new_ident(AsmState *st, char *new) {
+    if (scopes_offset_of(&st->scopes, new) >= 0) {
         puts("Error:");
-        printf("Attempting to declare identifier %s twice\n", identifier);
+        printf("Attempting to declare identifier %s twice\n", new);
         exit(-1);
     }
-    int index = st->storage_count++;
-    if (st->storage_count * sizeof(Storage) > st->storage_size) {
-        st->storage_size <<= 1;
-        st->storages = realloc(st->storages, st->storage_size);
-    }
-    st->storages[index].identifier = identifier;
-    if (4 + (index << 2) > st->allocated_stack) {
+    Scope *current = st->scopes.scopes + st->scopes.count - 1;
+    idents_insert(&current->identifiers, new);
+    int index = current->identifiers.count - 1;
+    int offset = current->initial_offset + (index << 2);
+    int total_allocated =
+        ((current->initial_offset - 1) >> 4) + current->allocated_stack;
+    if (offset >= total_allocated) {
+        current->allocated_stack += 16;
         fputs("\tsub rsp, 16\n", st->out);
-        st->allocated_stack += 16;
     }
-    // We need to add an extra shift, because even though the stack grows down
-    // we write up
-    st->storages[index].offset = (index + 1) << 2;
 }
 
 char *asm_reg_for_nth_function_param(bool is64, int n) {
@@ -1114,7 +1177,7 @@ void asm_expr(AsmState *st, AstNode *node) {
         break;
     case K_IDENTIFIER: {
         char *ident = node->data.string;
-        int offset = asm_offset_of(st, ident);
+        int offset = scopes_offset_of(&st->scopes, ident);
         if (offset < 0) {
             printf("Error:\nUse of undeclared identifier %s\n", ident);
             exit(-1);
@@ -1128,7 +1191,7 @@ void asm_expr(AsmState *st, AstNode *node) {
     case K_ASSIGN:
         asm_expr(st, node->data.children + 1);
         char *ident = node->data.children->data.string;
-        int offset = asm_offset_of(st, ident);
+        int offset = scopes_offset_of(&st->scopes, ident);
         if (offset < 0) {
             printf("Error:\nAssignment to undeclared identifier %s\n", ident);
             exit(-1);
@@ -1251,13 +1314,13 @@ void asm_expr(AsmState *st, AstNode *node) {
 void asm_declare(AsmState *st, AstNode *node) {
     if (node->kind == K_NO_INIT_DECLARATION) {
         char *identifier = node->data.children[0].data.string;
-        asm_create_storage(st, identifier);
+        asm_new_ident(st, identifier);
     } else if (node->kind == K_INIT_DECLARATION) {
         char *identifier = node->data.children[0].data.string;
-        asm_create_storage(st, identifier);
+        asm_new_ident(st, identifier);
         asm_expr(st, node->data.children + 1);
         fputs("\tpop\trax\n", st->out);
-        int offset = asm_offset_of(st, identifier);
+        int offset = scopes_offset_of(&st->scopes, identifier);
         if (offset < 0) {
             printf("Error:\nStack offset %d < 0\n", offset);
             exit(-1);
@@ -1301,18 +1364,17 @@ void asm_statement(AsmState *st, AstNode *node) {
         fputs("\tpop\trax\n", st->out);
         fputs("\ttest\teax, eax\n", st->out);
         fprintf(st->out, "\tje\t.%s%d\n", st->function_name, label);
-        AstNode *inside = node->data.children + 1;
-        if (inside->kind == K_BLOCK) {
-            for (unsigned int i = 0; i < inside->count; ++i) {
-                asm_statement(st, inside->data.children + i);
-            }
-        } else {
-            asm_statement(st, inside);
-        }
+        asm_statement(st, node->data.children + 1);
         fprintf(st->out, ".%s%d:\n", st->function_name, label);
         if (node->count == 3) {
             asm_statement(st, node->data.children + 2);
         }
+    } else if (node->kind == K_BLOCK) {
+        scopes_enter(&st->scopes);
+        for (unsigned int i = 0; i < node->count; ++i) {
+            asm_statement(st, node->data.children + i);
+        }
+        scopes_exit(&st->scopes);
     } else {
         panic("Unable to handle statement type");
     }
@@ -1322,7 +1384,7 @@ void asm_function(AsmState *st, AstNode *node) {
     assert(node->kind == K_FUNCTION);
     AstNode *name = node->data.children;
     assert(name->kind == K_IDENTIFIER);
-    asm_new_function_state(st, name->data.string);
+    asm_enter_function(st, name->data.string);
     fprintf(st->out, "\t.globl %s\n", name->data.string);
     fprintf(st->out, "%s:\n", name->data.string);
     fputs("\tpush\trbp\n", st->out);
@@ -1332,8 +1394,8 @@ void asm_function(AsmState *st, AstNode *node) {
     for (unsigned int i = 0; i < params->count; ++i) {
         assert(params->data.children[i].kind == K_IDENTIFIER);
         char *param_id = params->data.children[i].data.string;
-        asm_create_storage(st, param_id);
-        int offset = asm_offset_of(st, param_id);
+        asm_new_ident(st, param_id);
+        int offset = scopes_offset_of(&st->scopes, param_id);
         if (offset < 0) {
             printf("Error:\nStack offset %d < 0\n", offset);
             exit(-1);
@@ -1346,6 +1408,7 @@ void asm_function(AsmState *st, AstNode *node) {
     for (unsigned int i = 0; i < block->count; ++i) {
         asm_statement(st, block->data.children + i);
     }
+    scopes_exit(&st->scopes);
 }
 
 void asm_gen(AsmState *st, AstNode *root) {
