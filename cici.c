@@ -50,6 +50,7 @@ typedef enum TokenType {
     T_RETURN,
     T_IF,
     T_ELSE,
+    T_WHILE,
     // Litteral
     T_LITT_NUMBER,
     T_IDENTIFIER,
@@ -145,6 +146,9 @@ void token_print(Token t, FILE *fp) {
         break;
     case T_ELSE:
         fputs("else\n", fp);
+        break;
+    case T_WHILE:
+        fputs("while\n", fp);
         break;
     case T_LITT_NUMBER:
         fprintf(fp, "%d\n", t.data.litt);
@@ -288,6 +292,8 @@ Token lex_next(LexState *st) {
                 token.type = T_IF;
             } else if (strcmp(buf, "else") == 0) {
                 token.type = T_ELSE;
+            } else if (strcmp(buf, "while") == 0) {
+                token.type = T_WHILE;
             } else {
                 token.type = T_IDENTIFIER;
                 token.data.string = buf;
@@ -328,8 +334,10 @@ typedef enum AstKind {
     K_DECLARATION,
     // Represents a return statement e.g. `return 1;`
     K_RETURN,
-    // Represents a return statement e.g. `if (x) return 2;`
+    // Represents an if statement e.g. `if (x) return 2;`
     K_IF,
+    // Represents a while loop, e.g. `while (x) return 1;`
+    K_WHILE,
     // Represents a declaration with initialization
     K_INIT_DECLARATION,
     // Represents a declaration without initialization
@@ -429,6 +437,9 @@ void ast_print_rec(AstNode *node, FILE *fp) {
         break;
     case K_IF:
         name = "if";
+        break;
+    case K_WHILE:
+        name = "while";
         break;
     case K_NO_INIT_DECLARATION:
         name = "declare";
@@ -894,6 +905,15 @@ void *parse_statement(ParseState *st, AstNode *node) {
                 realloc(node->data.children, 3 * sizeof(AstNode));
             parse_block_or_statement(st, node->data.children + 2);
         }
+    } else if (parse_check(st, T_WHILE)) {
+        parse_advance(st);
+        parse_consume(st, T_LEFT_PARENS, "Expected `(` after `while`");
+        node->kind = K_WHILE;
+        node->count = 2;
+        node->data.children = malloc(2 * sizeof(AstNode));
+        parse_assignment_expr(st, node->data.children);
+        parse_consume(st, T_RIGHT_PARENS, "Expected `)` to close `(`");
+        parse_block_or_statement(st, node->data.children + 1);
     } else {
         node->kind = K_EXPR_STATEMENT;
         parse_top_expr_opt(st, node);
@@ -1394,6 +1414,17 @@ bool asm_statement(AsmState *st, AstNode *node) {
             else_returns = asm_statement(st, node->data.children + 2);
         }
         after_unreachable = if_returns && else_returns;
+    } else if (node->kind == K_WHILE) {
+        int start_label = st->label_index++;
+        int end_label = st->label_index++;
+        fprintf(st->out, ".%s%d:\n", st->function_name, start_label);
+        asm_expr(st, node->data.children);
+        fputs("\tpop\trax\n", st->out);
+        fputs("\ttest\teax, eax\n", st->out);
+        fprintf(st->out, "\tje\t.%s%d\n", st->function_name, end_label);
+        asm_statement(st, node->data.children + 1);
+        fprintf(st->out, "\tjmp\t.%s%d\n", st->function_name, start_label);
+        fprintf(st->out, ".%s%d:\n", st->function_name, end_label);
     } else if (node->kind == K_BLOCK) {
         scopes_enter(&st->scopes);
         for (unsigned int i = 0; i < node->count; ++i) {
