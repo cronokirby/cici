@@ -1092,6 +1092,14 @@ int scopes_offset_of(Scopes *scopes, char *identifier) {
     return -1;
 }
 
+int scopes_total_allocated(Scopes *scopes) {
+    int total = 0;
+    for (unsigned int i = 0; i < scopes->count; ++i) {
+        total += scopes->scopes[i].allocated_stack;
+    }
+    return total;
+}
+
 typedef struct AsmState {
     Scopes scopes;
     // The name of the current function
@@ -1129,8 +1137,7 @@ void asm_new_ident(AsmState *st, char *new) {
     idents_insert(&current->identifiers, new);
     int index = current->identifiers.count - 1;
     int offset = current->initial_offset + (index << 2);
-    int total_allocated =
-        ((current->initial_offset - 1) >> 4) + current->allocated_stack;
+    int total_allocated = scopes_total_allocated(&st->scopes);
     if (offset >= total_allocated) {
         current->allocated_stack += 16;
         fputs("\tsub rsp, 16\n", st->out);
