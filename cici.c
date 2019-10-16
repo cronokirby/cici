@@ -1144,9 +1144,10 @@ void asm_new_ident(AsmState *st, char *new) {
     }
 }
 
-void asm_exit_scope(AsmState *st) {
+// We might not need to clear the stack if there was a return
+void asm_exit_scope(AsmState *st, bool clear_stack) {
     Scope *current = st->scopes.scopes + st->scopes.count - 1;
-    if (current->allocated_stack > 0) {
+    if (clear_stack && current->allocated_stack > 0) {
         fprintf(st->out, "\tadd\trsp, %d\n", current->allocated_stack);
     }
     scopes_exit(&st->scopes);
@@ -1361,13 +1362,16 @@ void asm_top_expr(AsmState *st, AstNode *node) {
     }
 }
 
-void asm_statement(AsmState *st, AstNode *node) {
+// Return true if code appearing after this statement is unreachable
+bool asm_statement(AsmState *st, AstNode *node) {
+    bool after_unreachable = false;
     if (node->kind == K_RETURN) {
         asm_top_expr(st, node->data.children);
         fputs("\tpop\trax\n", st->out);
         fputs("\tmov\trsp, rbp\n", st->out);
         fputs("\tpop\trbp\n", st->out);
         fputs("\tret\n", st->out);
+        after_unreachable = true;
     } else if (node->kind == K_EXPR_STATEMENT) {
         if (node->count == 1) {
             asm_top_expr(st, node->data.children);
@@ -1383,20 +1387,26 @@ void asm_statement(AsmState *st, AstNode *node) {
         fputs("\tpop\trax\n", st->out);
         fputs("\ttest\teax, eax\n", st->out);
         fprintf(st->out, "\tje\t.%s%d\n", st->function_name, label);
-        asm_statement(st, node->data.children + 1);
+        bool if_returns = asm_statement(st, node->data.children + 1);
         fprintf(st->out, ".%s%d:\n", st->function_name, label);
+        bool else_returns = false;
         if (node->count == 3) {
-            asm_statement(st, node->data.children + 2);
+            else_returns = asm_statement(st, node->data.children + 2);
         }
+        after_unreachable = if_returns && else_returns;
     } else if (node->kind == K_BLOCK) {
         scopes_enter(&st->scopes);
         for (unsigned int i = 0; i < node->count; ++i) {
-            asm_statement(st, node->data.children + i);
+            if (asm_statement(st, node->data.children + i)) {
+                asm_exit_scope(st, false);
+                return true;
+            }
         }
-        asm_exit_scope(st);
+        asm_exit_scope(st, true);
     } else {
         panic("Unable to handle statement type");
     }
+    return after_unreachable;
 }
 
 void asm_function(AsmState *st, AstNode *node) {
@@ -1425,9 +1435,12 @@ void asm_function(AsmState *st, AstNode *node) {
     AstNode *block = node->data.children + 2;
     assert(block->kind == K_BLOCK);
     for (unsigned int i = 0; i < block->count; ++i) {
-        asm_statement(st, block->data.children + i);
+        if (asm_statement(st, block->data.children + i)) {
+            asm_exit_scope(st, false);
+            return;
+        }
     }
-    asm_exit_scope(st);
+    asm_exit_scope(st, true);
 }
 
 void asm_gen(AsmState *st, AstNode *root) {
