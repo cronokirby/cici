@@ -915,7 +915,7 @@ void parse_block(ParseState *st, AstNode *node) {
             size_t size = allocated * sizeof(AstNode);
             node->data.children = realloc(node->data.children, size);
         }
-        parse_statement(st, node->data.children + offset);
+        parse_block_or_statement(st, node->data.children + offset);
     }
     if (parse_at_end(st)) {
         printf("Error at index %ld:\n", st->lex_st.index);
@@ -1020,7 +1020,7 @@ void idents_insert(Identifiers *idents, char *new) {
 }
 
 // Returns < 0 for negative indices
-unsigned int idents_index_of(Identifiers *idents, char *target) {
+int idents_index_of(Identifiers *idents, char *target) {
     for (unsigned int i = 0; i < idents->count; ++i) {
         if (strcmp(idents->identifiers[i], target) == 0) {
             return i;
@@ -1117,9 +1117,13 @@ void asm_enter_function(AsmState *st, char *function_name) {
 
 void asm_new_ident(AsmState *st, char *new) {
     if (scopes_offset_of(&st->scopes, new) >= 0) {
-        puts("Error:");
-        printf("Attempting to declare identifier %s twice\n", new);
-        exit(-1);
+        Scope *current = st->scopes.scopes + st->scopes.count - 1;
+        bool in_current = idents_index_of(&current->identifiers, new) >= 0;
+        if (in_current) {
+            puts("Error:");
+            printf("Attempting to declare identifier %s twice\n", new);
+            exit(-1);
+        }
     }
     Scope *current = st->scopes.scopes + st->scopes.count - 1;
     idents_insert(&current->identifiers, new);
@@ -1131,6 +1135,14 @@ void asm_new_ident(AsmState *st, char *new) {
         current->allocated_stack += 16;
         fputs("\tsub rsp, 16\n", st->out);
     }
+}
+
+void asm_exit_scope(AsmState *st) {
+    Scope *current = st->scopes.scopes + st->scopes.count - 1;
+    if (current->allocated_stack > 0) {
+        fprintf(st->out, "\tadd\trsp, %d\n", current->allocated_stack);
+    }
+    scopes_exit(&st->scopes);
 }
 
 char *asm_reg_for_nth_function_param(bool is64, int n) {
@@ -1374,7 +1386,7 @@ void asm_statement(AsmState *st, AstNode *node) {
         for (unsigned int i = 0; i < node->count; ++i) {
             asm_statement(st, node->data.children + i);
         }
-        scopes_exit(&st->scopes);
+        asm_exit_scope(st);
     } else {
         panic("Unable to handle statement type");
     }
@@ -1408,7 +1420,7 @@ void asm_function(AsmState *st, AstNode *node) {
     for (unsigned int i = 0; i < block->count; ++i) {
         asm_statement(st, block->data.children + i);
     }
-    scopes_exit(&st->scopes);
+    asm_exit_scope(st);
 }
 
 void asm_gen(AsmState *st, AstNode *root) {
