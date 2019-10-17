@@ -1415,7 +1415,8 @@ void asm_top_expr(AsmState *st, AstNode *node) {
 }
 
 // Return true if code appearing after this statement is unreachable
-bool asm_statement(AsmState *st, AstNode *node, int start_label, int end_label) {
+bool asm_statement(AsmState *st, AstNode *node, int start_label,
+                   int end_label) {
     bool after_unreachable = false;
     if (node->kind == K_RETURN) {
         asm_top_expr(st, node->data.children);
@@ -1439,11 +1440,13 @@ bool asm_statement(AsmState *st, AstNode *node, int start_label, int end_label) 
         fputs("\tpop\trax\n", st->out);
         fputs("\ttest\teax, eax\n", st->out);
         fprintf(st->out, "\tje\t.%s%d\n", st->function_name, label);
-        bool if_returns = asm_statement(st, node->data.children + 1, start_label, end_label);
+        bool if_returns =
+            asm_statement(st, node->data.children + 1, start_label, end_label);
         fprintf(st->out, ".%s%d:\n", st->function_name, label);
         bool else_returns = false;
         if (node->count == 3) {
-            else_returns = asm_statement(st, node->data.children + 2, start_label, end_label);
+            else_returns = asm_statement(st, node->data.children + 2,
+                                         start_label, end_label);
         }
         after_unreachable = if_returns && else_returns;
     } else if (node->kind == K_WHILE) {
@@ -1460,7 +1463,8 @@ bool asm_statement(AsmState *st, AstNode *node, int start_label, int end_label) 
     } else if (node->kind == K_BLOCK) {
         scopes_enter(&st->scopes);
         for (unsigned int i = 0; i < node->count; ++i) {
-            if (asm_statement(st, node->data.children + i, start_label, end_label)) {
+            if (asm_statement(st, node->data.children + i, start_label,
+                              end_label)) {
                 asm_exit_scope(st, false);
                 return true;
             }
