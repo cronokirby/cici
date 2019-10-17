@@ -51,6 +51,8 @@ typedef enum TokenType {
     T_IF,
     T_ELSE,
     T_WHILE,
+    T_BREAK,
+    T_CONTINUE,
     // Litteral
     T_LITT_NUMBER,
     T_IDENTIFIER,
@@ -149,6 +151,12 @@ void token_print(Token t, FILE *fp) {
         break;
     case T_WHILE:
         fputs("while\n", fp);
+        break;
+    case T_BREAK:
+        fputs("break\n", fp);
+        break;
+    case T_CONTINUE:
+        fputs("continue\n", fp);
         break;
     case T_LITT_NUMBER:
         fprintf(fp, "%d\n", t.data.litt);
@@ -294,6 +302,10 @@ Token lex_next(LexState *st) {
                 token.type = T_ELSE;
             } else if (strcmp(buf, "while") == 0) {
                 token.type = T_WHILE;
+            } else if (strcmp(buf, "break") == 0) {
+                token.type = T_BREAK;
+            } else if (strcmp(buf, "continue") == 0) {
+                token.type = T_CONTINUE;
             } else {
                 token.type = T_IDENTIFIER;
                 token.data.string = buf;
@@ -334,6 +346,10 @@ typedef enum AstKind {
     K_DECLARATION,
     // Represents a return statement e.g. `return 1;`
     K_RETURN,
+    // Represents a break statement
+    K_BREAK,
+    // Represents a continue statement
+    K_CONTINUE,
     // Represents an if statement e.g. `if (x) return 2;`
     K_IF,
     // Represents a while loop, e.g. `while (x) return 1;`
@@ -434,6 +450,12 @@ void ast_print_rec(AstNode *node, FILE *fp) {
         break;
     case K_RETURN:
         name = "return";
+        break;
+    case K_BREAK:
+        name = "break";
+        break;
+    case K_CONTINUE:
+        name = "continue";
         break;
     case K_IF:
         name = "if";
@@ -870,6 +892,16 @@ void *parse_statement(ParseState *st, AstNode *node) {
         parse_advance(st);
         node->kind = K_RETURN;
         parse_top_expr_opt(st, node);
+        parse_consume(st, T_SEMICOLON, "Expected semicolon to end statement");
+    } else if (parse_check(st, T_BREAK)) {
+        parse_advance(st);
+        node->kind = K_BREAK;
+        node->count = 0;
+        parse_consume(st, T_SEMICOLON, "Expected semicolon to end statement");
+    } else if (parse_check(st, T_CONTINUE)) {
+        parse_advance(st);
+        node->kind = K_CONTINUE;
+        node->count = 0;
         parse_consume(st, T_SEMICOLON, "Expected semicolon to end statement");
     } else if (parse_check(st, T_INT)) {
         parse_advance(st);
@@ -1383,7 +1415,7 @@ void asm_top_expr(AsmState *st, AstNode *node) {
 }
 
 // Return true if code appearing after this statement is unreachable
-bool asm_statement(AsmState *st, AstNode *node) {
+bool asm_statement(AsmState *st, AstNode *node, int start_label, int end_label) {
     bool after_unreachable = false;
     if (node->kind == K_RETURN) {
         asm_top_expr(st, node->data.children);
@@ -1407,11 +1439,11 @@ bool asm_statement(AsmState *st, AstNode *node) {
         fputs("\tpop\trax\n", st->out);
         fputs("\ttest\teax, eax\n", st->out);
         fprintf(st->out, "\tje\t.%s%d\n", st->function_name, label);
-        bool if_returns = asm_statement(st, node->data.children + 1);
+        bool if_returns = asm_statement(st, node->data.children + 1, start_label, end_label);
         fprintf(st->out, ".%s%d:\n", st->function_name, label);
         bool else_returns = false;
         if (node->count == 3) {
-            else_returns = asm_statement(st, node->data.children + 2);
+            else_returns = asm_statement(st, node->data.children + 2, start_label, end_label);
         }
         after_unreachable = if_returns && else_returns;
     } else if (node->kind == K_WHILE) {
@@ -1422,18 +1454,22 @@ bool asm_statement(AsmState *st, AstNode *node) {
         fputs("\tpop\trax\n", st->out);
         fputs("\ttest\teax, eax\n", st->out);
         fprintf(st->out, "\tje\t.%s%d\n", st->function_name, end_label);
-        asm_statement(st, node->data.children + 1);
+        asm_statement(st, node->data.children + 1, start_label, end_label);
         fprintf(st->out, "\tjmp\t.%s%d\n", st->function_name, start_label);
         fprintf(st->out, ".%s%d:\n", st->function_name, end_label);
     } else if (node->kind == K_BLOCK) {
         scopes_enter(&st->scopes);
         for (unsigned int i = 0; i < node->count; ++i) {
-            if (asm_statement(st, node->data.children + i)) {
+            if (asm_statement(st, node->data.children + i, start_label, end_label)) {
                 asm_exit_scope(st, false);
                 return true;
             }
         }
         asm_exit_scope(st, true);
+    } else if (node->kind == K_BREAK) {
+        fprintf(st->out, "\tjmp\t.%s%d\n", st->function_name, end_label);
+    } else if (node->kind == K_CONTINUE) {
+        fprintf(st->out, "\tjmp\t.%s%d\n", st->function_name, start_label);
     } else {
         panic("Unable to handle statement type");
     }
@@ -1466,7 +1502,7 @@ void asm_function(AsmState *st, AstNode *node) {
     AstNode *block = node->data.children + 2;
     assert(block->kind == K_BLOCK);
     for (unsigned int i = 0; i < block->count; ++i) {
-        if (asm_statement(st, block->data.children + i)) {
+        if (asm_statement(st, block->data.children + i, -1, -1)) {
             asm_exit_scope(st, false);
             return;
         }
