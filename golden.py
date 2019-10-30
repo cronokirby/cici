@@ -6,14 +6,14 @@ C_EXTENSION = ".c"
 TEST_DIR = "tests"
 
 
-def get_c_files(dir):
-    for file in os.listdir(dir):
+def get_c_files(path):
+    for file in os.listdir(path):
         if file.endswith(C_EXTENSION):
-            yield os.path.join(dir, file)
+            yield os.path.join(path, file)
 
 
-def join_split(str):
-    return ' '.join(str.split())
+def join_split(string):
+    return ' '.join(string.split())
 
 
 def get_expected(name, file):
@@ -37,6 +37,7 @@ def get_expected_return(file):
         for line in fp:
             if line.startswith("//RET"):
                 return int(line.split()[1])
+    return None
 
 
 def test_lex(file):
